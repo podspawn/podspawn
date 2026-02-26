@@ -11,7 +11,7 @@ var connectCmd = &cobra.Command{
 	Short: "ProxyCommand handler for .pod namespace routing",
 	Args:  cobra.ExactArgs(3),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(cmd.ErrOrStderr(), "connect: stub")
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "connect: stub")
 	},
 }
 

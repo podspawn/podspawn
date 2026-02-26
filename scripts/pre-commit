@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# Pre-commit hook: runs fast checks before allowing a commit.
+# Install: cp scripts/pre-commit .git/hooks/pre-commit
+
+set -e
+
+echo "pre-commit: formatting..."
+unformatted=$(gofmt -l . 2>&1 | grep -v vendor || true)
+if [ -n "$unformatted" ]; then
+    echo "gofmt needed on:"
+    echo "$unformatted"
+    exit 1
+fi
+
+echo "pre-commit: vetting..."
+go vet ./...
+
+echo "pre-commit: linting..."
+if command -v golangci-lint >/dev/null 2>&1; then
+    golangci-lint run --timeout 30s
+else
+    echo "  (golangci-lint not installed, skipping)"
+fi
+
+echo "pre-commit: testing..."
+go test -count=1 ./...
+
+echo "pre-commit: ok"

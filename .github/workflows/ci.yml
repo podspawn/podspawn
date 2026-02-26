@@ -20,8 +20,10 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Vet
-        run: make lint
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.10
 
       - name: Unit tests
         run: go test -race -count=1 ./...

@@ -102,7 +102,7 @@ func TestContainerNaming(t *testing.T) {
 	sess := &Session{Username: "ci-runner", Runtime: fake}
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
-	sess.Run(context.Background())
+	_, _ = sess.Run(context.Background())
 
 	if _, ok := fake.Containers["podspawn-ci-runner"]; !ok {
 		t.Error("container should be named podspawn-ci-runner")

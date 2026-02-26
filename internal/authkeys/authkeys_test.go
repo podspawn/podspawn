@@ -123,7 +123,7 @@ func TestLookupBinaryPath(t *testing.T) {
 	writeKeyFile(t, dir, "deploy", "ssh-ed25519 AAAA1 laptop\n")
 
 	var buf bytes.Buffer
-	Lookup("deploy", dir, "/home/me/podspawn", &buf)
+	_, _ = Lookup("deploy", dir, "/home/me/podspawn", &buf)
 
 	if !strings.Contains(buf.String(), `command="/home/me/podspawn spawn`) {
 		t.Errorf("binary path not reflected in output: %s", buf.String())

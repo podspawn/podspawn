@@ -8,6 +8,7 @@ import (
 
 	"log/slog"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
@@ -31,7 +32,7 @@ func NewDockerRuntime() (*DockerRuntime, error) {
 func (d *DockerRuntime) ContainerExists(ctx context.Context, name string) (bool, error) {
 	_, err := d.cli.ContainerInspect(ctx, name)
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("inspecting container %s: %w", name, err)
@@ -40,7 +41,7 @@ func (d *DockerRuntime) ContainerExists(ctx context.Context, name string) (bool,
 }
 
 func (d *DockerRuntime) pullIfMissing(ctx context.Context, ref string) error {
-	_, _, err := d.cli.ImageInspectWithRaw(ctx, ref)
+	_, err := d.cli.ImageInspect(ctx, ref)
 	if err == nil {
 		return nil
 	}
@@ -49,8 +50,8 @@ func (d *DockerRuntime) pullIfMissing(ctx context.Context, ref string) error {
 	if err != nil {
 		return fmt.Errorf("pulling image %s: %w", ref, err)
 	}
-	defer reader.Close()
-	io.Copy(io.Discard, reader)
+	defer reader.Close() //nolint:errcheck
+	_, _ = io.Copy(io.Discard, reader)
 	return nil
 }
 
@@ -105,8 +106,8 @@ func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecO
 
 	if opts.Stdin != nil {
 		go func() {
-			io.Copy(attach.Conn, opts.Stdin)
-			attach.CloseWrite()
+			_, _ = io.Copy(attach.Conn, opts.Stdin)
+			_ = attach.CloseWrite()
 		}()
 	}
 

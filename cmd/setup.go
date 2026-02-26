@@ -10,7 +10,7 @@ var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Configure client ~/.ssh/config for .pod namespace",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "setup: nothing here yet\n")
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "setup: nothing here yet\n")
 	},
 }
 

@@ -11,7 +11,7 @@ var verifyImageCmd = &cobra.Command{
 	Short: "Check if a container image is compatible with podspawn",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Fprintf(cmd.OutOrStdout(), "verify-image: skipping %s (no checks registered)\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "verify-image: skipping %s (no checks registered)\n", args[0])
 		return nil
 	},
 }

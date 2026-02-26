@@ -59,7 +59,7 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string) (i
 		if err != nil {
 			return 1, fmt.Errorf("setting raw terminal: %w", err)
 		}
-		defer term.Restore(stdinFd, oldState)
+		defer term.Restore(stdinFd, oldState) //nolint:errcheck // best-effort restore
 	}
 
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
@@ -99,7 +99,7 @@ func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {
 	defer signal.Stop(sigCh)
 
 	if w, h, err := term.GetSize(int(os.Stdin.Fd())); err == nil {
-		rt.ResizeExec(ctx, execID, uint(h), uint(w))
+		_ = rt.ResizeExec(ctx, execID, uint(h), uint(w))
 	}
 
 	for {
@@ -111,7 +111,7 @@ func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {
 			if err != nil {
 				continue
 			}
-			rt.ResizeExec(ctx, execID, uint(h), uint(w))
+			_ = rt.ResizeExec(ctx, execID, uint(h), uint(w))
 		}
 	}
 }

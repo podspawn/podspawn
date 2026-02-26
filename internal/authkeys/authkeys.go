@@ -30,7 +30,7 @@ func Lookup(username, keyDir, binaryPath string, w io.Writer) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("reading keys for %s: %w", username, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only file
 
 	n := 0
 	scanner := bufio.NewScanner(f)
@@ -41,7 +41,9 @@ func Lookup(username, keyDir, binaryPath string, w io.Writer) (int, error) {
 		}
 		directive := fmt.Sprintf("command=\"%s spawn --user %s\",%s",
 			binaryPath, username, keyOptions)
-		fmt.Fprintf(w, "%s %s\n", directive, line)
+		if _, err := fmt.Fprintf(w, "%s %s\n", directive, line); err != nil {
+			return n, fmt.Errorf("writing key for %s: %w", username, err)
+		}
 		n++
 	}
 	if err := scanner.Err(); err != nil {
