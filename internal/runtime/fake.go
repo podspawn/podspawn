@@ -11,11 +11,13 @@ import (
 type FakeRuntime struct {
 	mu sync.Mutex
 
-	Containers map[string]bool // name → running
-	ExecCalls  []FakeExecCall
-	ExitCode   int // returned by Exec
-	ExecErr    error
-	CreateErr  error
+	Containers  map[string]bool // name → running
+	CreateCalls []ContainerOpts
+	ExecCalls   []FakeExecCall
+	ExitCode    int // returned by Exec
+	ExecErr     error
+	CreateErr   error
+	StartErr    error
 }
 
 type FakeExecCall struct {
@@ -44,6 +46,7 @@ func (f *FakeRuntime) CreateContainer(_ context.Context, opts ContainerOpts) (st
 	if f.CreateErr != nil {
 		return "", f.CreateErr
 	}
+	f.CreateCalls = append(f.CreateCalls, opts)
 	f.Containers[opts.Name] = false
 	return opts.Name, nil
 }
@@ -51,6 +54,9 @@ func (f *FakeRuntime) CreateContainer(_ context.Context, opts ContainerOpts) (st
 func (f *FakeRuntime) StartContainer(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.StartErr != nil {
+		return f.StartErr
+	}
 	f.Containers[id] = true
 	return nil
 }

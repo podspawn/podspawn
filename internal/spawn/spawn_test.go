@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/podspawn/podspawn/internal/runtime"
@@ -106,6 +107,57 @@ func TestContainerNaming(t *testing.T) {
 
 	if _, ok := fake.Containers["podspawn-ci-runner"]; !ok {
 		t.Error("container should be named podspawn-ci-runner")
+	}
+}
+
+func TestRunCreateContainerError(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.CreateErr = errors.New("image pull timeout")
+	sess := &Session{Username: "deploy", Runtime: fake}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
+
+	exitCode, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from failed container creation")
+	}
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
+	}
+	if len(fake.ExecCalls) != 0 {
+		t.Fatalf("no exec should happen when creation fails, got %d calls", len(fake.ExecCalls))
+	}
+}
+
+func TestRunStartContainerError(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.StartErr = errors.New("port already bound")
+	sess := &Session{Username: "deploy", Runtime: fake}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
+
+	exitCode, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from failed container start")
+	}
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
+	}
+	if len(fake.ExecCalls) != 0 {
+		t.Fatalf("no exec should happen when start fails, got %d calls", len(fake.ExecCalls))
+	}
+}
+
+func TestRunExecError(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.ExecErr = errors.New("container stopped unexpectedly")
+	sess := &Session{Username: "deploy", Runtime: fake}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
+
+	exitCode, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from failed exec")
+	}
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
 	}
 }
 

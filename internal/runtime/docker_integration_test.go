@@ -21,11 +21,12 @@ func mustDockerRuntime(t *testing.T) *DockerRuntime {
 
 func TestDockerExecEcho(t *testing.T) {
 	rt := mustDockerRuntime(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	name := "podspawn-integ-echo"
 
 	t.Cleanup(func() {
-		rt.RemoveContainer(ctx, name)
+		rt.RemoveContainer(context.Background(), name) //nolint:errcheck
 	})
 
 	_, err := rt.CreateContainer(ctx, ContainerOpts{
@@ -62,11 +63,12 @@ func TestDockerExecEcho(t *testing.T) {
 
 func TestDockerExitCodePropagation(t *testing.T) {
 	rt := mustDockerRuntime(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	name := "podspawn-integ-exitcode"
 
 	t.Cleanup(func() {
-		rt.RemoveContainer(ctx, name)
+		rt.RemoveContainer(context.Background(), name) //nolint:errcheck
 	})
 
 	_, err := rt.CreateContainer(ctx, ContainerOpts{
@@ -97,11 +99,12 @@ func TestDockerExitCodePropagation(t *testing.T) {
 
 func TestDockerContainerLifecycle(t *testing.T) {
 	rt := mustDockerRuntime(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	name := "podspawn-integ-lifecycle"
 
 	t.Cleanup(func() {
-		rt.RemoveContainer(ctx, name)
+		rt.RemoveContainer(context.Background(), name) //nolint:errcheck
 	})
 
 	exists, _ := rt.ContainerExists(ctx, name)
