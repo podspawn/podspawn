@@ -10,7 +10,7 @@ var serverSetupCmd = &cobra.Command{
 	Use:   "server-setup",
 	Short: "Configure sshd for podspawn integration",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return errors.New("server-setup: pending implementation")
+		return errors.New("server-setup: not yet wired up")
 	},
 }
 
