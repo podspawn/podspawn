@@ -1,0 +1,139 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestDefaults(t *testing.T) {
+	cfg := Defaults()
+
+	if cfg.Auth.KeyDir != "/etc/podspawn/keys" {
+		t.Errorf("auth.key_dir = %q, want /etc/podspawn/keys", cfg.Auth.KeyDir)
+	}
+	if cfg.Defaults.Image != "ubuntu:24.04" {
+		t.Errorf("defaults.image = %q, want ubuntu:24.04", cfg.Defaults.Image)
+	}
+	if cfg.Defaults.Shell != "/bin/bash" {
+		t.Errorf("defaults.shell = %q, want /bin/bash", cfg.Defaults.Shell)
+	}
+	if cfg.Defaults.CPUs != 2.0 {
+		t.Errorf("defaults.cpus = %f, want 2.0", cfg.Defaults.CPUs)
+	}
+	if cfg.Defaults.Memory != "2g" {
+		t.Errorf("defaults.memory = %q, want 2g", cfg.Defaults.Memory)
+	}
+	if cfg.Session.GracePeriod != "60s" {
+		t.Errorf("session.grace_period = %q, want 60s", cfg.Session.GracePeriod)
+	}
+	if cfg.Session.MaxLifetime != "8h" {
+		t.Errorf("session.max_lifetime = %q, want 8h", cfg.Session.MaxLifetime)
+	}
+	if cfg.Session.Mode != "grace-period" {
+		t.Errorf("session.mode = %q, want grace-period", cfg.Session.Mode)
+	}
+	if cfg.Log.File != "" {
+		t.Errorf("log.file = %q, want empty", cfg.Log.File)
+	}
+}
+
+func TestLoadValidConfig(t *testing.T) {
+	yaml := `
+auth:
+  key_dir: /opt/keys
+defaults:
+  image: "debian:12"
+  shell: "/bin/zsh"
+  cpus: 4.0
+  memory: "8g"
+session:
+  grace_period: "30s"
+  max_lifetime: "4h"
+  mode: "destroy-on-disconnect"
+log:
+  file: "/var/log/podspawn.log"
+`
+	path := writeTemp(t, yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Auth.KeyDir != "/opt/keys" {
+		t.Errorf("auth.key_dir = %q, want /opt/keys", cfg.Auth.KeyDir)
+	}
+	if cfg.Defaults.Image != "debian:12" {
+		t.Errorf("defaults.image = %q, want debian:12", cfg.Defaults.Image)
+	}
+	if cfg.Defaults.Shell != "/bin/zsh" {
+		t.Errorf("defaults.shell = %q, want /bin/zsh", cfg.Defaults.Shell)
+	}
+	if cfg.Defaults.CPUs != 4.0 {
+		t.Errorf("defaults.cpus = %f, want 4.0", cfg.Defaults.CPUs)
+	}
+	if cfg.Session.GracePeriod != "30s" {
+		t.Errorf("session.grace_period = %q, want 30s", cfg.Session.GracePeriod)
+	}
+	if cfg.Session.Mode != "destroy-on-disconnect" {
+		t.Errorf("session.mode = %q, want destroy-on-disconnect", cfg.Session.Mode)
+	}
+	if cfg.Log.File != "/var/log/podspawn.log" {
+		t.Errorf("log.file = %q, want /var/log/podspawn.log", cfg.Log.File)
+	}
+}
+
+func TestLoadMissingFile(t *testing.T) {
+	cfg, err := Load("/nonexistent/path/config.yaml")
+	if err != nil {
+		t.Fatalf("missing file should not error, got: %v", err)
+	}
+
+	defaults := Defaults()
+	if cfg.Defaults.Image != defaults.Defaults.Image {
+		t.Errorf("missing file should return defaults, got image %q", cfg.Defaults.Image)
+	}
+}
+
+func TestLoadPartialConfig(t *testing.T) {
+	yaml := `
+defaults:
+  image: "alpine:3.20"
+`
+	path := writeTemp(t, yaml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Defaults.Image != "alpine:3.20" {
+		t.Errorf("image = %q, want alpine:3.20", cfg.Defaults.Image)
+	}
+	// Unset fields should keep defaults
+	if cfg.Auth.KeyDir != "/etc/podspawn/keys" {
+		t.Errorf("key_dir should default to /etc/podspawn/keys, got %q", cfg.Auth.KeyDir)
+	}
+	if cfg.Defaults.Shell != "/bin/bash" {
+		t.Errorf("shell should default to /bin/bash, got %q", cfg.Defaults.Shell)
+	}
+	if cfg.Session.GracePeriod != "60s" {
+		t.Errorf("grace_period should default to 60s, got %q", cfg.Session.GracePeriod)
+	}
+}
+
+func TestLoadInvalidYAML(t *testing.T) {
+	path := writeTemp(t, "{{not yaml at all")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func writeTemp(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}

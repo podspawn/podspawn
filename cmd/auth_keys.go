@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultKeyDir = "/etc/podspawn/keys"
-
 var authKeysCmd = &cobra.Command{
 	Use:   "auth-keys <username> [key-type] [key-data]",
 	Short: "AuthorizedKeysCommand handler for sshd",
@@ -30,6 +28,9 @@ var authKeysCmd = &cobra.Command{
 		}
 
 		keyDir, _ := cmd.Flags().GetString("key-dir")
+		if !cmd.Flags().Changed("key-dir") && cfg != nil {
+			keyDir = cfg.Auth.KeyDir
+		}
 		n, err := authkeys.Lookup(username, keyDir, binPath, os.Stdout)
 		if err != nil {
 			slog.Error("auth-keys lookup failed", "user", username, "error", err)
@@ -40,6 +41,6 @@ var authKeysCmd = &cobra.Command{
 }
 
 func init() {
-	authKeysCmd.Flags().String("key-dir", defaultKeyDir, "directory containing per-user key files")
+	authKeysCmd.Flags().String("key-dir", "/etc/podspawn/keys", "directory containing per-user key files")
 	rootCmd.AddCommand(authKeysCmd)
 }

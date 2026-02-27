@@ -8,9 +8,18 @@ import (
 	"github.com/podspawn/podspawn/internal/runtime"
 )
 
+func testSession(fake *runtime.FakeRuntime, username string) *Session {
+	return &Session{
+		Username: username,
+		Runtime:  fake,
+		Image:    "ubuntu:24.04",
+		Shell:    "/bin/bash",
+	}
+}
+
 func TestRunCreatesContainerWhenMissing(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 
 	t.Setenv("SSH_ORIGINAL_COMMAND", "echo hello")
 
@@ -46,7 +55,7 @@ func TestRunReattachesToExistingContainer(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.Containers["podspawn-deploy"] = true
 
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
 
 	_, err := sess.Run(context.Background())
@@ -63,7 +72,7 @@ func TestRunPropagatesExitCode(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.ExitCode = 42
 
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "exit 42")
 
 	exitCode, err := sess.Run(context.Background())
@@ -77,7 +86,7 @@ func TestRunPropagatesExitCode(t *testing.T) {
 
 func TestRunInteractiveShellUsesTTY(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 
 	t.Setenv("SSH_ORIGINAL_COMMAND", "")
 
@@ -98,9 +107,47 @@ func TestRunInteractiveShellUsesTTY(t *testing.T) {
 	}
 }
 
+func TestRunInteractiveShellUsesConfiguredShell(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	sess.Shell = "/bin/zsh"
+
+	t.Setenv("SSH_ORIGINAL_COMMAND", "")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	call := fake.ExecCalls[0]
+	if call.Opts.Cmd[0] != "/bin/zsh" {
+		t.Errorf("expected /bin/zsh, got %v", call.Opts.Cmd)
+	}
+}
+
+func TestRunUsesConfiguredImage(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	sess.Image = "debian:12"
+
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.CreateCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(fake.CreateCalls))
+	}
+	if fake.CreateCalls[0].Image != "debian:12" {
+		t.Errorf("expected image debian:12, got %s", fake.CreateCalls[0].Image)
+	}
+}
+
 func TestContainerNaming(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
-	sess := &Session{Username: "ci-runner", Runtime: fake}
+	sess := testSession(fake, "ci-runner")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
 	_, _ = sess.Run(context.Background())
@@ -113,7 +160,7 @@ func TestContainerNaming(t *testing.T) {
 func TestRunCreateContainerError(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.CreateErr = errors.New("image pull timeout")
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
 
 	exitCode, err := sess.Run(context.Background())
@@ -131,7 +178,7 @@ func TestRunCreateContainerError(t *testing.T) {
 func TestRunStartContainerError(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.StartErr = errors.New("port already bound")
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
 
 	exitCode, err := sess.Run(context.Background())
@@ -149,7 +196,7 @@ func TestRunStartContainerError(t *testing.T) {
 func TestRunExecError(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.ExecErr = errors.New("container stopped unexpectedly")
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
 
 	exitCode, err := sess.Run(context.Background())
@@ -165,7 +212,7 @@ func TestCleanupRemovesContainer(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.Containers["podspawn-deploy"] = true
 
-	sess := &Session{Username: "deploy", Runtime: fake}
+	sess := testSession(fake, "deploy")
 	sess.Cleanup(context.Background())
 
 	if _, ok := fake.Containers["podspawn-deploy"]; ok {

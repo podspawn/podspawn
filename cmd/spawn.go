@@ -25,6 +25,8 @@ var spawnCmd = &cobra.Command{
 		sess := &spawn.Session{
 			Username: user,
 			Runtime:  rt,
+			Image:    cfg.Defaults.Image,
+			Shell:    cfg.Defaults.Shell,
 		}
 
 		exitCode := sess.RunAndCleanup(context.Background())

@@ -13,11 +13,11 @@ import (
 	"golang.org/x/term"
 )
 
-const defaultImage = "ubuntu:24.04"
-
 type Session struct {
 	Username string
 	Runtime  runtime.Runtime
+	Image    string
+	Shell    string
 }
 
 func (s *Session) Run(ctx context.Context) (int, error) {
@@ -29,10 +29,10 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 	}
 
 	if !exists {
-		slog.Info("creating container", "name", containerName, "image", defaultImage)
+		slog.Info("creating container", "name", containerName, "image", s.Image)
 		_, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 			Name:  containerName,
-			Image: defaultImage,
+			Image: s.Image,
 			Cmd:   []string{"sleep", "infinity"},
 		})
 		if err != nil {
@@ -63,7 +63,7 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string) (i
 	}
 
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
-		Cmd:    []string{"/bin/bash"},
+		Cmd:    []string{s.Shell},
 		TTY:    true,
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
