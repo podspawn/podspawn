@@ -21,7 +21,7 @@ var rootCmd = &cobra.Command{
 		configPath, _ := cmd.Flags().GetString("config")
 		loaded, err := config.Load(configPath)
 		if err != nil {
-			if cmd.Name() == "help" || cmd.Name() == "completion" || !cmd.HasParent() {
+			if cmd.Name() == "help" || cmd.Name() == "completion" || cmd.Name() == "connect" || cmd.Name() == "setup" || cmd.Name() == "version" || !cmd.HasParent() {
 				slog.Warn("config load failed, using defaults", "path", configPath, "error", err)
 				loaded = config.Defaults()
 			} else {

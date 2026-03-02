@@ -51,7 +51,7 @@ func (f *FakeStore) UpdateConnections(user string, delta int) (int, error) {
 	if sess.Connections < 0 {
 		sess.Connections = 0
 	}
-	sess.LastActivity = time.Now()
+	sess.LastActivity = time.Now().UTC()
 	return sess.Connections, nil
 }
 
