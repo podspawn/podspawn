@@ -2,8 +2,10 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,6 +14,7 @@ type Config struct {
 	Auth     AuthConfig     `yaml:"auth"`
 	Defaults DefaultsConfig `yaml:"defaults"`
 	Session  SessionConfig  `yaml:"session"`
+	State    StateConfig    `yaml:"state"`
 	Log      LogConfig      `yaml:"log"`
 }
 
@@ -30,6 +33,11 @@ type SessionConfig struct {
 	GracePeriod string `yaml:"grace_period"`
 	MaxLifetime string `yaml:"max_lifetime"`
 	Mode        string `yaml:"mode"`
+}
+
+type StateConfig struct {
+	DBPath  string `yaml:"db_path"`
+	LockDir string `yaml:"lock_dir"`
 }
 
 type LogConfig struct {
@@ -52,7 +60,24 @@ func Defaults() *Config {
 			MaxLifetime: "8h",
 			Mode:        "grace-period",
 		},
+		State: StateConfig{
+			DBPath:  "/var/lib/podspawn/state.db",
+			LockDir: "/var/lib/podspawn/locks",
+		},
 	}
+}
+
+func (c *Config) Validate() error {
+	if _, err := time.ParseDuration(c.Session.GracePeriod); err != nil {
+		return fmt.Errorf("invalid session.grace_period %q: must include time unit (e.g. 60s, 8h)", c.Session.GracePeriod)
+	}
+	if _, err := time.ParseDuration(c.Session.MaxLifetime); err != nil {
+		return fmt.Errorf("invalid session.max_lifetime %q: must include time unit (e.g. 60s, 8h)", c.Session.MaxLifetime)
+	}
+	if _, err := ParseMemory(c.Defaults.Memory); err != nil {
+		return fmt.Errorf("invalid defaults.memory %q: %w", c.Defaults.Memory, err)
+	}
+	return nil
 }
 
 // Load reads a YAML config file and returns a Config with defaults
@@ -70,6 +95,10 @@ func Load(path string) (*Config, error) {
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, err
+	}
+
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 

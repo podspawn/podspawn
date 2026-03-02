@@ -11,6 +11,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -59,12 +60,30 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 	if err := d.pullIfMissing(ctx, opts.Image); err != nil {
 		return "", err
 	}
+	hostCfg := &container.HostConfig{}
+	if opts.CPUs > 0 {
+		hostCfg.NanoCPUs = int64(opts.CPUs * 1e9)
+	}
+	if opts.Memory > 0 {
+		hostCfg.Memory = opts.Memory
+	}
+	for _, m := range opts.Mounts {
+		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   m.Source,
+			Target:   m.Target,
+			ReadOnly: m.ReadOnly,
+		})
+	}
+
 	resp, err := d.cli.ContainerCreate(ctx, &container.Config{
 		Image:     opts.Image,
 		Cmd:       opts.Cmd,
+		Env:       opts.Env,
+		Labels:    opts.Labels,
 		OpenStdin: true,
 		Tty:       false,
-	}, nil, nil, nil, opts.Name)
+	}, hostCfg, nil, nil, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("creating container %s: %w", opts.Name, err)
 	}
