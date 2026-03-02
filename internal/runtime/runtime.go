@@ -7,9 +7,20 @@ import (
 )
 
 type ContainerOpts struct {
-	Name  string
-	Image string
-	Cmd   []string
+	Name   string
+	Image  string
+	Cmd    []string
+	Env    []string
+	Mounts []Mount
+	CPUs   float64
+	Memory int64
+	Labels map[string]string
+}
+
+type Mount struct {
+	Source   string
+	Target   string
+	ReadOnly bool
 }
 
 type ExecOpts struct {

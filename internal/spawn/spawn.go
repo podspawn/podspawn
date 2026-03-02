@@ -6,23 +6,134 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/lock"
 	"github.com/podspawn/podspawn/internal/runtime"
+	"github.com/podspawn/podspawn/internal/state"
 	"golang.org/x/term"
 )
 
+const sftpServerPath = "/usr/lib/openssh/sftp-server"
+
 type Session struct {
-	Username string
-	Runtime  runtime.Runtime
-	Image    string
-	Shell    string
+	Username    string
+	Runtime     runtime.Runtime
+	Image       string
+	Shell       string
+	CPUs        float64
+	Memory      int64
+	Store       state.SessionStore // nil = Phase 0 mode (destroy on exit)
+	LockDir     string
+	GracePeriod time.Duration
+	MaxLifetime time.Duration
+	Mode        string // "grace-period" | "destroy-on-disconnect"
+}
+
+func (s *Session) containerName() string {
+	return "podspawn-" + s.Username
 }
 
 func (s *Session) Run(ctx context.Context) (int, error) {
-	containerName := "podspawn-" + s.Username
+	containerName := s.containerName()
 
+	if s.Store != nil {
+		containerName, err := s.ensureContainerWithState(ctx)
+		if err != nil {
+			return 1, err
+		}
+		return s.routeSession(ctx, containerName)
+	}
+
+	// Phase 0 fallback: no state store
+	return s.ensureContainerLegacy(ctx, containerName)
+}
+
+// ensureContainerWithState uses locking + state store to manage the container.
+func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) {
+	containerName := s.containerName()
+
+	unlock, err := lock.Acquire(s.LockDir, s.Username)
+	if err != nil {
+		return "", fmt.Errorf("acquiring lock: %w", err)
+	}
+	defer unlock()
+
+	s.reconcileUser(ctx)
+
+	sess, err := s.Store.GetSession(s.Username)
+	if err != nil {
+		return "", fmt.Errorf("checking session state: %w", err)
+	}
+
+	if sess != nil {
+		alive, _ := s.Runtime.ContainerExists(ctx, sess.ContainerName)
+		if !alive {
+			slog.Warn("stale session, container gone", "user", s.Username, "container", sess.ContainerName)
+			if err := s.Store.DeleteSession(s.Username); err != nil {
+				return "", fmt.Errorf("cleaning stale session: %w", err)
+			}
+			sess = nil
+		}
+	}
+
+	if sess != nil {
+		if sess.Status == "grace_period" {
+			slog.Info("cancelling grace period", "user", s.Username)
+			if err := s.Store.CancelGracePeriod(s.Username); err != nil {
+				return "", err
+			}
+		}
+		if _, err := s.Store.UpdateConnections(s.Username, 1); err != nil {
+			return "", err
+		}
+		slog.Info("reattaching to container", "name", sess.ContainerName, "connections", sess.Connections+1)
+		return sess.ContainerName, nil
+	}
+
+	// Create new container
+	slog.Info("creating container", "name", containerName, "image", s.Image)
+	id, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
+		Name:   containerName,
+		Image:  s.Image,
+		Cmd:    []string{"sleep", "infinity"},
+		CPUs:   s.CPUs,
+		Memory: s.Memory,
+		Labels: map[string]string{
+			"managed-by":    "podspawn",
+			"podspawn-user": s.Username,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := s.Runtime.StartContainer(ctx, containerName); err != nil {
+		return "", err
+	}
+
+	now := time.Now().UTC()
+	if err := s.Store.CreateSession(&state.Session{
+		User:          s.Username,
+		ContainerID:   id,
+		ContainerName: containerName,
+		Image:         s.Image,
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(s.MaxLifetime),
+	}); err != nil {
+		return "", fmt.Errorf("recording session: %w", err)
+	}
+
+	return containerName, nil
+}
+
+// ensureContainerLegacy is the Phase 0 path: no state, no locking.
+func (s *Session) ensureContainerLegacy(ctx context.Context, containerName string) (int, error) {
 	exists, err := s.Runtime.ContainerExists(ctx, containerName)
 	if err != nil {
 		return 1, fmt.Errorf("checking container %s: %w", containerName, err)
@@ -31,9 +142,15 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 	if !exists {
 		slog.Info("creating container", "name", containerName, "image", s.Image)
 		_, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
-			Name:  containerName,
-			Image: s.Image,
-			Cmd:   []string{"sleep", "infinity"},
+			Name:   containerName,
+			Image:  s.Image,
+			Cmd:    []string{"sleep", "infinity"},
+			CPUs:   s.CPUs,
+			Memory: s.Memory,
+			Labels: map[string]string{
+				"managed-by":    "podspawn",
+				"podspawn-user": s.Username,
+			},
 		})
 		if err != nil {
 			return 1, err
@@ -45,11 +162,30 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 		slog.Info("reattaching to container", "name", containerName)
 	}
 
+	return s.routeSession(ctx, containerName)
+}
+
+func (s *Session) routeSession(ctx context.Context, containerName string) (int, error) {
 	origCmd := os.Getenv("SSH_ORIGINAL_COMMAND")
-	if origCmd == "" {
+	switch {
+	case origCmd == "":
 		return s.interactiveShell(ctx, containerName)
+	case isSFTP(origCmd):
+		return s.execCommand(ctx, containerName, sftpServerPath)
+	default:
+		return s.execCommand(ctx, containerName, origCmd)
 	}
-	return s.execCommand(ctx, containerName, origCmd)
+}
+
+func isSFTP(cmd string) bool {
+	if cmd == "internal-sftp" {
+		return true
+	}
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return false
+	}
+	return filepath.Base(fields[0]) == "sftp-server"
 }
 
 func (s *Session) interactiveShell(ctx context.Context, containerName string) (int, error) {
@@ -116,16 +252,81 @@ func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {
 	}
 }
 
-// Cleanup removes the user's container. Phase 0 calls this on
-// session end; later phases will add grace periods.
-func (s *Session) Cleanup(ctx context.Context) {
-	containerName := "podspawn-" + s.Username
-	if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
-		slog.Warn("cleanup failed", "container", containerName, "error", err)
+// reconcileUser cleans up stale state for the current user only.
+func (s *Session) reconcileUser(ctx context.Context) {
+	// Crash recovery: connections=0 with no grace expiry
+	stale, err := s.Store.StaleZeroConnections(s.Username)
+	if err != nil {
+		slog.Warn("reconcile: failed to check stale sessions", "error", err)
+		return
+	}
+	if stale != nil {
+		slog.Info("reconcile: cleaning up stale session", "user", stale.User, "container", stale.ContainerName)
+		_ = s.Runtime.RemoveContainer(ctx, stale.ContainerName)
+		_ = s.Store.DeleteSession(stale.User)
+	}
+
+	// Expired grace period for this user
+	sess, err := s.Store.GetSession(s.Username)
+	if err != nil || sess == nil {
+		return
+	}
+	if sess.Status == "grace_period" && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now()) {
+		slog.Info("reconcile: grace period expired", "user", sess.User, "container", sess.ContainerName)
+		_ = s.Runtime.RemoveContainer(ctx, sess.ContainerName)
+		_ = s.Store.DeleteSession(sess.User)
 	}
 }
 
-// RunAndCleanup runs the session and removes the container after.
+// Disconnect handles session teardown: decrements connection count,
+// starts grace period or destroys container.
+// Must be called with context that has enough timeout for cleanup.
+func (s *Session) Disconnect(ctx context.Context) {
+	if s.Store == nil {
+		// Phase 0: always destroy
+		containerName := s.containerName()
+		if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
+			slog.Warn("cleanup failed", "container", containerName, "error", err)
+		}
+		return
+	}
+
+	unlock, err := lock.Acquire(s.LockDir, s.Username)
+	if err != nil {
+		slog.Error("disconnect: failed to acquire lock", "user", s.Username, "error", err)
+		return
+	}
+	defer unlock()
+
+	count, err := s.Store.UpdateConnections(s.Username, -1)
+	if err != nil {
+		slog.Error("disconnect: failed to decrement connections", "user", s.Username, "error", err)
+		return
+	}
+
+	if count > 0 {
+		slog.Info("session still active", "user", s.Username, "connections", count)
+		return
+	}
+
+	containerName := s.containerName()
+	if s.Mode == "destroy-on-disconnect" || s.GracePeriod == 0 {
+		slog.Info("destroying container", "user", s.Username, "container", containerName)
+		if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
+			slog.Warn("destroy failed", "container", containerName, "error", err)
+		}
+		_ = s.Store.DeleteSession(s.Username)
+		return
+	}
+
+	expiry := time.Now().Add(s.GracePeriod)
+	slog.Info("starting grace period", "user", s.Username, "expires", expiry)
+	if err := s.Store.SetGracePeriod(s.Username, expiry); err != nil {
+		slog.Error("failed to set grace period", "user", s.Username, "error", err)
+	}
+}
+
+// RunAndCleanup runs the session and handles disconnect after.
 // Returns the exit code to pass to os.Exit.
 func (s *Session) RunAndCleanup(ctx context.Context) int {
 	exitCode, err := s.Run(ctx)
@@ -135,7 +336,7 @@ func (s *Session) RunAndCleanup(ctx context.Context) int {
 
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s.Cleanup(cleanupCtx)
+	s.Disconnect(cleanupCtx)
 
 	return exitCode
 }

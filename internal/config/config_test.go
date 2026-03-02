@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,48 @@ func TestDefaults(t *testing.T) {
 	}
 	if cfg.Log.File != "" {
 		t.Errorf("log.file = %q, want empty", cfg.Log.File)
+	}
+	if cfg.State.DBPath != "/var/lib/podspawn/state.db" {
+		t.Errorf("state.db_path = %q, want /var/lib/podspawn/state.db", cfg.State.DBPath)
+	}
+	if cfg.State.LockDir != "/var/lib/podspawn/locks" {
+		t.Errorf("state.lock_dir = %q, want /var/lib/podspawn/locks", cfg.State.LockDir)
+	}
+}
+
+func TestParseMemory(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"2g", 2 * 1024 * 1024 * 1024},
+		{"512m", 512 * 1024 * 1024},
+		{"1024k", 1024 * 1024},
+		{"4G", 4 * 1024 * 1024 * 1024},
+		{"0", 0},
+		{"", 0},
+		{"1073741824", 1073741824},
+		{"0.5g", 512 * 1024 * 1024},
+	}
+	for _, tt := range tests {
+		got, err := ParseMemory(tt.input)
+		if err != nil {
+			t.Errorf("ParseMemory(%q) error: %v", tt.input, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("ParseMemory(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseMemoryErrors(t *testing.T) {
+	invalid := []string{"abc", "-1g", "2x"}
+	for _, s := range invalid {
+		_, err := ParseMemory(s)
+		if err == nil {
+			t.Errorf("ParseMemory(%q) should error", s)
+		}
 	}
 }
 
@@ -118,6 +161,36 @@ defaults:
 	}
 	if cfg.Session.GracePeriod != "60s" {
 		t.Errorf("grace_period should default to 60s, got %q", cfg.Session.GracePeriod)
+	}
+}
+
+func TestLoadRejectsInvalidDuration(t *testing.T) {
+	yaml := `
+session:
+  grace_period: "60"
+`
+	path := writeTemp(t, yaml)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for grace_period without time unit")
+	}
+	if !strings.Contains(err.Error(), "session.grace_period") {
+		t.Errorf("error should mention field name, got: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidMemory(t *testing.T) {
+	yaml := `
+defaults:
+  memory: "lots"
+`
+	path := writeTemp(t, yaml)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid memory value")
+	}
+	if !strings.Contains(err.Error(), "defaults.memory") {
+		t.Errorf("error should mention field name, got: %v", err)
 	}
 }
 

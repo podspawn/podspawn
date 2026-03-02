@@ -4,9 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"time"
 
+	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/spawn"
+	"github.com/podspawn/podspawn/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -22,11 +25,31 @@ var spawnCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// These are validated by config.Load, so errors here are unreachable
+		memory, _ := config.ParseMemory(cfg.Defaults.Memory)
+		gracePeriod, _ := time.ParseDuration(cfg.Session.GracePeriod)
+		maxLifetime, _ := time.ParseDuration(cfg.Session.MaxLifetime)
+
+		store, err := state.Open(cfg.State.DBPath)
+		if err != nil {
+			slog.Warn("failed to open state db, running without state tracking", "error", err)
+		}
+		if store != nil {
+			defer func() { _ = store.Close() }()
+		}
+
 		sess := &spawn.Session{
-			Username: user,
-			Runtime:  rt,
-			Image:    cfg.Defaults.Image,
-			Shell:    cfg.Defaults.Shell,
+			Username:    user,
+			Runtime:     rt,
+			Image:       cfg.Defaults.Image,
+			Shell:       cfg.Defaults.Shell,
+			CPUs:        cfg.Defaults.CPUs,
+			Memory:      memory,
+			Store:       store,
+			LockDir:     cfg.State.LockDir,
+			GracePeriod: gracePeriod,
+			MaxLifetime: maxLifetime,
+			Mode:        cfg.Session.Mode,
 		}
 
 		exitCode := sess.RunAndCleanup(context.Background())
