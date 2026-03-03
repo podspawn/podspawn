@@ -1,0 +1,16 @@
+auth:
+  key_dir: /etc/podspawn/keys
+defaults:
+  image: ubuntu:24.04
+  shell: /bin/bash
+  cpus: 1.0
+  memory: "256m"
+session:
+  grace_period: 5s
+  max_lifetime: 30s
+  mode: "grace-period"
+state:
+  db_path: /var/lib/podspawn/state.db
+  lock_dir: /var/lib/podspawn/locks
+log:
+  file: /var/log/podspawn.log
