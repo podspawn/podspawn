@@ -38,8 +38,6 @@ func (s *Session) containerName() string {
 }
 
 func (s *Session) Run(ctx context.Context) (int, error) {
-	containerName := s.containerName()
-
 	if s.Store != nil {
 		containerName, err := s.ensureContainerWithState(ctx)
 		if err != nil {
@@ -49,7 +47,7 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 	}
 
 	// Phase 0 fallback: no state store
-	return s.ensureContainerLegacy(ctx, containerName)
+	return s.ensureContainerLegacy(ctx, s.containerName())
 }
 
 // ensureContainerWithState uses locking + state store to manage the container.

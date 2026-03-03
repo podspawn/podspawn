@@ -45,11 +45,13 @@ var spawnCmd = &cobra.Command{
 			Shell:       cfg.Defaults.Shell,
 			CPUs:        cfg.Defaults.CPUs,
 			Memory:      memory,
-			Store:       store,
 			LockDir:     cfg.State.LockDir,
 			GracePeriod: gracePeriod,
 			MaxLifetime: maxLifetime,
 			Mode:        cfg.Session.Mode,
+		}
+		if store != nil {
+			sess.Store = store
 		}
 
 		exitCode := sess.RunAndCleanup(context.Background())
