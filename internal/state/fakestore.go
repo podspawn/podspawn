@@ -9,7 +9,7 @@ import (
 
 type FakeStore struct {
 	mu       sync.Mutex
-	Sessions map[string]*Session
+	Sessions map[string]*Session // keyed by "user|project"
 }
 
 var _ SessionStore = (*FakeStore)(nil)
@@ -18,21 +18,26 @@ func NewFakeStore() *FakeStore {
 	return &FakeStore{Sessions: make(map[string]*Session)}
 }
 
+func sessionKey(user, project string) string {
+	return user + "|" + project
+}
+
 func (f *FakeStore) CreateSession(sess *Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if _, exists := f.Sessions[sess.User]; exists {
-		return fmt.Errorf("session already exists for %s", sess.User)
+	key := sessionKey(sess.User, sess.Project)
+	if _, exists := f.Sessions[key]; exists {
+		return fmt.Errorf("session already exists for %s/%s", sess.User, sess.Project)
 	}
 	cp := *sess
-	f.Sessions[sess.User] = &cp
+	f.Sessions[key] = &cp
 	return nil
 }
 
-func (f *FakeStore) GetSession(user string) (*Session, error) {
+func (f *FakeStore) GetSession(user, project string) (*Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	sess, ok := f.Sessions[user]
+	sess, ok := f.Sessions[sessionKey(user, project)]
 	if !ok {
 		return nil, nil
 	}
@@ -40,12 +45,12 @@ func (f *FakeStore) GetSession(user string) (*Session, error) {
 	return &cp, nil
 }
 
-func (f *FakeStore) UpdateConnections(user string, delta int) (int, error) {
+func (f *FakeStore) UpdateConnections(user, project string, delta int) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	sess, ok := f.Sessions[user]
+	sess, ok := f.Sessions[sessionKey(user, project)]
 	if !ok {
-		return 0, fmt.Errorf("no session for %s", user)
+		return 0, fmt.Errorf("no session for %s/%s", user, project)
 	}
 	sess.Connections += delta
 	if sess.Connections < 0 {
@@ -55,34 +60,34 @@ func (f *FakeStore) UpdateConnections(user string, delta int) (int, error) {
 	return sess.Connections, nil
 }
 
-func (f *FakeStore) SetGracePeriod(user string, expiry time.Time) error {
+func (f *FakeStore) SetGracePeriod(user, project string, expiry time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	sess, ok := f.Sessions[user]
+	sess, ok := f.Sessions[sessionKey(user, project)]
 	if !ok {
-		return fmt.Errorf("no session for %s", user)
+		return fmt.Errorf("no session for %s/%s", user, project)
 	}
 	sess.Status = "grace_period"
 	sess.GraceExpiry = sql.NullTime{Time: expiry, Valid: true}
 	return nil
 }
 
-func (f *FakeStore) CancelGracePeriod(user string) error {
+func (f *FakeStore) CancelGracePeriod(user, project string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	sess, ok := f.Sessions[user]
+	sess, ok := f.Sessions[sessionKey(user, project)]
 	if !ok {
-		return fmt.Errorf("no session for %s", user)
+		return fmt.Errorf("no session for %s/%s", user, project)
 	}
 	sess.Status = "running"
 	sess.GraceExpiry = sql.NullTime{}
 	return nil
 }
 
-func (f *FakeStore) DeleteSession(user string) error {
+func (f *FakeStore) DeleteSession(user, project string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.Sessions, user)
+	delete(f.Sessions, sessionKey(user, project))
 	return nil
 }
 
@@ -114,10 +119,10 @@ func (f *FakeStore) ExpiredLifetimes() ([]*Session, error) {
 	return out, nil
 }
 
-func (f *FakeStore) StaleZeroConnections(user string) (*Session, error) {
+func (f *FakeStore) StaleZeroConnections(user, project string) (*Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	sess, ok := f.Sessions[user]
+	sess, ok := f.Sessions[sessionKey(user, project)]
 	if !ok {
 		return nil, nil
 	}

@@ -21,6 +21,7 @@ const sftpServerPath = "/usr/lib/openssh/sftp-server"
 
 type Session struct {
 	Username    string
+	ProjectName string // empty = default image session
 	Runtime     runtime.Runtime
 	Image       string
 	Shell       string
@@ -34,6 +35,9 @@ type Session struct {
 }
 
 func (s *Session) containerName() string {
+	if s.ProjectName != "" {
+		return "podspawn-" + s.Username + "-" + s.ProjectName
+	}
 	return "podspawn-" + s.Username
 }
 
@@ -62,7 +66,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 
 	s.reconcileUser(ctx)
 
-	sess, err := s.Store.GetSession(s.Username)
+	sess, err := s.Store.GetSession(s.Username, s.ProjectName)
 	if err != nil {
 		return "", fmt.Errorf("checking session state: %w", err)
 	}
@@ -71,7 +75,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 		alive, _ := s.Runtime.ContainerExists(ctx, sess.ContainerName)
 		if !alive {
 			slog.Warn("stale session, container gone", "user", s.Username, "container", sess.ContainerName)
-			if err := s.Store.DeleteSession(s.Username); err != nil {
+			if err := s.Store.DeleteSession(s.Username, s.ProjectName); err != nil {
 				return "", fmt.Errorf("cleaning stale session: %w", err)
 			}
 			sess = nil
@@ -81,11 +85,11 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 	if sess != nil {
 		if sess.Status == "grace_period" {
 			slog.Info("cancelling grace period", "user", s.Username)
-			if err := s.Store.CancelGracePeriod(s.Username); err != nil {
+			if err := s.Store.CancelGracePeriod(s.Username, s.ProjectName); err != nil {
 				return "", err
 			}
 		}
-		if _, err := s.Store.UpdateConnections(s.Username, 1); err != nil {
+		if _, err := s.Store.UpdateConnections(s.Username, s.ProjectName, 1); err != nil {
 			return "", err
 		}
 		slog.Info("reattaching to container", "name", sess.ContainerName, "connections", sess.Connections+1)
@@ -115,6 +119,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 	now := time.Now().UTC()
 	if err := s.Store.CreateSession(&state.Session{
 		User:          s.Username,
+		Project:       s.ProjectName,
 		ContainerID:   id,
 		ContainerName: containerName,
 		Image:         s.Image,
@@ -253,7 +258,7 @@ func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {
 // reconcileUser cleans up stale state for the current user only.
 func (s *Session) reconcileUser(ctx context.Context) {
 	// Crash recovery: connections=0 with no grace expiry
-	stale, err := s.Store.StaleZeroConnections(s.Username)
+	stale, err := s.Store.StaleZeroConnections(s.Username, s.ProjectName)
 	if err != nil {
 		slog.Warn("reconcile: failed to check stale sessions", "error", err)
 		return
@@ -261,18 +266,18 @@ func (s *Session) reconcileUser(ctx context.Context) {
 	if stale != nil {
 		slog.Info("reconcile: cleaning up stale session", "user", stale.User, "container", stale.ContainerName)
 		_ = s.Runtime.RemoveContainer(ctx, stale.ContainerName)
-		_ = s.Store.DeleteSession(stale.User)
+		_ = s.Store.DeleteSession(stale.User, stale.Project)
 	}
 
-	// Expired grace period for this user
-	sess, err := s.Store.GetSession(s.Username)
+	// Expired grace period for this user/project
+	sess, err := s.Store.GetSession(s.Username, s.ProjectName)
 	if err != nil || sess == nil {
 		return
 	}
 	if sess.Status == "grace_period" && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now()) {
 		slog.Info("reconcile: grace period expired", "user", sess.User, "container", sess.ContainerName)
 		_ = s.Runtime.RemoveContainer(ctx, sess.ContainerName)
-		_ = s.Store.DeleteSession(sess.User)
+		_ = s.Store.DeleteSession(sess.User, sess.Project)
 	}
 }
 
@@ -296,7 +301,7 @@ func (s *Session) Disconnect(ctx context.Context) {
 	}
 	defer unlock()
 
-	count, err := s.Store.UpdateConnections(s.Username, -1)
+	count, err := s.Store.UpdateConnections(s.Username, s.ProjectName, -1)
 	if err != nil {
 		slog.Error("disconnect: failed to decrement connections", "user", s.Username, "error", err)
 		return
@@ -313,13 +318,13 @@ func (s *Session) Disconnect(ctx context.Context) {
 		if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
 			slog.Warn("destroy failed", "container", containerName, "error", err)
 		}
-		_ = s.Store.DeleteSession(s.Username)
+		_ = s.Store.DeleteSession(s.Username, s.ProjectName)
 		return
 	}
 
 	expiry := time.Now().Add(s.GracePeriod)
 	slog.Info("starting grace period", "user", s.Username, "expires", expiry)
-	if err := s.Store.SetGracePeriod(s.Username, expiry); err != nil {
+	if err := s.Store.SetGracePeriod(s.Username, s.ProjectName, expiry); err != nil {
 		slog.Error("failed to set grace period", "user", s.Username, "error", err)
 	}
 }
