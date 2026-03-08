@@ -190,6 +190,19 @@ func TestContainerNaming(t *testing.T) {
 	}
 }
 
+func TestContainerNamingWithProject(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	sess.ProjectName = "backend"
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, _ = sess.Run(context.Background())
+
+	if _, ok := fake.Containers["podspawn-deploy-backend"]; !ok {
+		t.Error("container should be named podspawn-deploy-backend")
+	}
+}
+
 func TestRunCreateContainerError(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.CreateErr = errors.New("image pull timeout")
@@ -265,7 +278,7 @@ func TestRunWithStateCreatesSession(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0", exitCode)
 	}
 
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got == nil {
 		t.Fatal("session should exist in store")
 	}
@@ -318,7 +331,7 @@ func TestRunReattachesViaState(t *testing.T) {
 		t.Errorf("expected 0 create calls, got %d", len(fake.CreateCalls))
 	}
 
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got.Connections != 2 {
 		t.Errorf("connections = %d, want 2 (incremented)", got.Connections)
 	}
@@ -341,7 +354,7 @@ func TestRunCancelsGracePeriod(t *testing.T) {
 		LastActivity:  now,
 		MaxLifetime:   now.Add(8 * time.Hour),
 	})
-	_ = store.SetGracePeriod("deploy", now.Add(30*time.Second))
+	_ = store.SetGracePeriod("deploy", "", now.Add(30*time.Second))
 
 	sess := &Session{
 		Username:    "deploy",
@@ -361,7 +374,7 @@ func TestRunCancelsGracePeriod(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got.Status != "running" {
 		t.Errorf("status = %q, want running (grace cancelled)", got.Status)
 	}
@@ -399,7 +412,7 @@ func TestDisconnectStartsGracePeriod(t *testing.T) {
 
 	sess.Disconnect(context.Background())
 
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got == nil {
 		t.Fatal("session should still exist")
 	}
@@ -409,7 +422,6 @@ func TestDisconnectStartsGracePeriod(t *testing.T) {
 	if !got.GraceExpiry.Valid {
 		t.Error("grace_expiry should be set")
 	}
-	// Container should still be alive
 	if _, ok := fake.Containers["podspawn-deploy"]; !ok {
 		t.Error("container should not be removed during grace period")
 	}
@@ -443,7 +455,7 @@ func TestDisconnectDestroysInDestroyMode(t *testing.T) {
 
 	sess.Disconnect(context.Background())
 
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got != nil {
 		t.Error("session should be deleted in destroy mode")
 	}
@@ -480,7 +492,7 @@ func TestDisconnectDecrementsButKeepsAlive(t *testing.T) {
 
 	sess.Disconnect(context.Background())
 
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got.Connections != 1 {
 		t.Errorf("connections = %d, want 1", got.Connections)
 	}
@@ -530,7 +542,7 @@ func TestReconcileExpiredGracePeriod(t *testing.T) {
 		LastActivity:  past,
 		MaxLifetime:   time.Now().Add(8 * time.Hour),
 	})
-	_ = store.SetGracePeriod("deploy", past)
+	_ = store.SetGracePeriod("deploy", "", past)
 
 	sess := &Session{
 		Username:    "deploy",
@@ -554,7 +566,7 @@ func TestReconcileExpiredGracePeriod(t *testing.T) {
 	if _, ok := fake.Containers["podspawn-deploy"]; !ok {
 		t.Error("new container should exist")
 	}
-	got, _ := store.GetSession("deploy")
+	got, _ := store.GetSession("deploy", "")
 	if got == nil {
 		t.Fatal("session should exist after reconnect")
 	}
