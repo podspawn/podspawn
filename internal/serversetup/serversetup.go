@@ -126,7 +126,7 @@ func modifySSHDConfig(paths Paths, cmd Commander, out io.Writer) (retErr error) 
 		}
 	}()
 
-	block := fmt.Sprintf("\n# Added by podspawn server-setup\nAuthorizedKeysCommand %s auth-keys %%u %%t %%k\nAuthorizedKeysCommandUser nobody\n", paths.BinaryPath)
+	block := fmt.Sprintf("\n# Added by podspawn server-setup\nAuthorizedKeysCommand %s auth-keys %%u %%t %%k\nAuthorizedKeysCommandUser nobody\nAcceptEnv PODSPAWN_PROJECT\n", paths.BinaryPath)
 
 	f, err := os.OpenFile(paths.SSHDConfig, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {

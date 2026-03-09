@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/config"
@@ -19,6 +20,14 @@ var spawnCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		user, _ := cmd.Flags().GetString("user")
 		project, _ := cmd.Flags().GetString("project")
+
+		// Project routing: SSH client sends PODSPAWN_PROJECT=<hostname>.pod
+		// via SetEnv/SendEnv. Strip the .pod suffix to get the project name.
+		if project == "" {
+			if envProject := os.Getenv("PODSPAWN_PROJECT"); envProject != "" {
+				project = strings.TrimSuffix(envProject, ".pod")
+			}
+		}
 
 		rt, err := runtime.NewDockerRuntime()
 		if err != nil {

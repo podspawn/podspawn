@@ -11,6 +11,8 @@ import (
 
 const podBlock = `Host *.pod
     ProxyCommand podspawn connect %r %h %p
+    SetEnv PODSPAWN_PROJECT=%n
+    SendEnv PODSPAWN_PROJECT
     UserKnownHostsFile /dev/null
     StrictHostKeyChecking no
 `
