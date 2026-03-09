@@ -13,13 +13,15 @@ Because sshd handles the protocol, you get every SSH feature for free: SFTP, scp
 ## How it works
 
 ```
-ssh deploy@your-server
+ssh deploy@backend.pod
+  → ProxyCommand resolves backend.pod to your server
   → sshd calls: podspawn auth-keys deploy
   → podspawn returns keys with command="podspawn spawn --user deploy"
   → sshd authenticates, forces the command
-  → podspawn creates container, pipes stdin/stdout
-  → you're in a container. you don't know it.
-  → exit → container removed
+  → podspawn creates container from project's Podfile
+  → companion services (postgres, redis) start on a shared network
+  → you're in a fully configured dev environment
+  → exit → grace period starts → reconnect within 60s → same container
 ```
 
 Real system users are unaffected. If podspawn doesn't recognize the username, it returns nothing and sshd falls through to normal `~/.ssh/authorized_keys`.
@@ -48,37 +50,83 @@ Or skip the client binary entirely and SSH straight to the server. You lose the 
 # Build
 make build
 
-# Register a user's SSH key
-sudo mkdir -p /etc/podspawn/keys
-sudo cp ~/.ssh/id_ed25519.pub /etc/podspawn/keys/deploy
+# Server setup (configures sshd, creates directories)
+sudo ./podspawn server-setup
 
-# Test locally (without sshd integration)
-./podspawn auth-keys deploy
-SSH_ORIGINAL_COMMAND="echo hello" ./podspawn spawn --user deploy
+# Register a user
+sudo podspawn add-user deploy --github your-github-username
+
+# Register a project
+sudo podspawn add-project myapp --repo github.com/you/myapp
+
+# Client setup (adds *.pod to ~/.ssh/config)
+podspawn setup
+
+# Connect
+ssh deploy@myapp.pod
 ```
 
-## What works today
+## Podfile
+
+Define your dev environment in `podfile.yaml`:
+
+```yaml
+base: ubuntu:24.04
+packages:
+  - nodejs@22
+  - python@3.12
+  - ripgrep
+  - fzf
+shell: /bin/zsh
+services:
+  - name: postgres
+    image: postgres:16
+    env:
+      POSTGRES_PASSWORD: devpass
+  - name: redis
+    image: redis:7
+env:
+  DATABASE_URL: "postgres://postgres:devpass@postgres:5432/dev"
+on_create: "make setup"
+on_start: "echo welcome back"
+```
+
+Register a project:
+
+```bash
+sudo podspawn add-project backend --repo github.com/company/backend
+```
+
+Images are pre-built at registration time, not during SSH connections. Companion services get their own containers on a shared Docker network with DNS discovery (your app reaches postgres at `postgres:5432`).
+
+## What works
 
 - Local SSH key auth (no network calls at auth time)
 - Interactive shell with full TTY support (resize, raw mode)
 - Command execution with exit code propagation
-- Per-user containers (reconnect within grace period → same container)
-- Auto-pull missing Docker images
+- SFTP, scp, rsync
+- Grace period lifecycle (survive network blips)
+- Session state in SQLite with connection tracking
+- Podfile-based environment definitions with package version pinning
+- Companion services via Docker SDK (not docker compose)
+- Image caching via content-addressed SHA-256 tags
+- Client-side `.pod` namespace routing via ProxyCommand
+- Resource limits (CPU, memory) per-project and per-user
+- Dotfiles repo cloning and lifecycle hooks (on_create, on_start)
+- Per-user config overrides
+- `verify-image` compatibility checker
 
 ## What's coming
 
-- Grace period lifecycle (survive network blips)
-- Session state in SQLite
-- Podfile-based environment definitions
-- GitHub/OIDC key import
-- SFTP, scp, rsync
-- Client-side `.pod` namespace routing
-- Resource limits and network isolation
+- devcontainer.json fallback
+- Agent forwarding (bind-mount SSH_AUTH_SOCK)
 - gVisor runtime option
+- Cleanup daemon for expired sessions
+- OIDC auth provider
 
 ## Requirements
 
-- Go 1.22+
+- Go 1.23+
 - Docker (or OrbStack, Podman, anything with a Docker-compatible API)
 - OpenSSH 7.4+ (needs `AuthorizedKeysCommand` and the `restrict` keyword)
 
