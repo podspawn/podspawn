@@ -18,6 +18,7 @@ var spawnCmd = &cobra.Command{
 	Short: "ForceCommand handler, routes session I/O to containers",
 	Run: func(cmd *cobra.Command, args []string) {
 		user, _ := cmd.Flags().GetString("user")
+		project, _ := cmd.Flags().GetString("project")
 
 		rt, err := runtime.NewDockerRuntime()
 		if err != nil {
@@ -40,6 +41,7 @@ var spawnCmd = &cobra.Command{
 
 		sess := &spawn.Session{
 			Username:    user,
+			ProjectName: project,
 			Runtime:     rt,
 			Image:       cfg.Defaults.Image,
 			Shell:       cfg.Defaults.Shell,
@@ -54,6 +56,15 @@ var spawnCmd = &cobra.Command{
 			sess.Store = store
 		}
 
+		if project != "" {
+			projects, loadErr := config.LoadProjects(cfg.ProjectsFile)
+			if loadErr != nil {
+				slog.Warn("failed to load projects", "error", loadErr)
+			} else if p, ok := projects[project]; ok {
+				sess.Project = &p
+			}
+		}
+
 		exitCode := sess.RunAndCleanup(context.Background())
 		os.Exit(exitCode)
 	},
@@ -61,6 +72,7 @@ var spawnCmd = &cobra.Command{
 
 func init() {
 	spawnCmd.Flags().String("user", "", "username for the session")
+	spawnCmd.Flags().String("project", "", "project name for podfile-aware sessions")
 	_ = spawnCmd.MarkFlagRequired("user")
 	rootCmd.AddCommand(spawnCmd)
 }

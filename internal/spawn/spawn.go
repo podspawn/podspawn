@@ -1,17 +1,21 @@
 package spawn
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/lock"
+	"github.com/podspawn/podspawn/internal/podfile"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 	"golang.org/x/term"
@@ -21,7 +25,8 @@ const sftpServerPath = "/usr/lib/openssh/sftp-server"
 
 type Session struct {
 	Username    string
-	ProjectName string // empty = default image session
+	ProjectName string                // empty = default image session
+	Project     *config.ProjectConfig // nil = use default image
 	Runtime     runtime.Runtime
 	Image       string
 	Shell       string
@@ -32,6 +37,8 @@ type Session struct {
 	GracePeriod time.Duration
 	MaxLifetime time.Duration
 	Mode        string // "grace-period" | "destroy-on-disconnect"
+
+	pf *podfile.Podfile // cached after first parse
 }
 
 func (s *Session) containerName() string {
@@ -96,23 +103,32 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 		return sess.ContainerName, nil
 	}
 
-	// Create new container
-	slog.Info("creating container", "name", containerName, "image", s.Image)
+	image, env, networkID, serviceIDs, err := s.resolveProject(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	slog.Info("creating container", "name", containerName, "image", image)
 	id, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
-		Name:   containerName,
-		Image:  s.Image,
-		Cmd:    []string{"sleep", "infinity"},
-		CPUs:   s.CPUs,
-		Memory: s.Memory,
+		Name:        containerName,
+		Image:       image,
+		Cmd:         []string{"sleep", "infinity"},
+		Env:         env,
+		CPUs:        s.CPUs,
+		Memory:      s.Memory,
+		NetworkID:   networkID,
+		NetworkName: containerName,
 		Labels: map[string]string{
 			"managed-by":    "podspawn",
 			"podspawn-user": s.Username,
 		},
 	})
 	if err != nil {
+		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
 		return "", err
 	}
 	if err := s.Runtime.StartContainer(ctx, containerName); err != nil {
+		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
 		return "", err
 	}
 
@@ -122,12 +138,14 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 		Project:       s.ProjectName,
 		ContainerID:   id,
 		ContainerName: containerName,
-		Image:         s.Image,
+		Image:         image,
 		Status:        "running",
 		Connections:   1,
 		CreatedAt:     now,
 		LastActivity:  now,
 		MaxLifetime:   now.Add(s.MaxLifetime),
+		NetworkID:     networkID,
+		ServiceIDs:    strings.Join(serviceIDs, ","),
 	}); err != nil {
 		return "", fmt.Errorf("recording session: %w", err)
 	}
@@ -265,7 +283,7 @@ func (s *Session) reconcileUser(ctx context.Context) {
 	}
 	if stale != nil {
 		slog.Info("reconcile: cleaning up stale session", "user", stale.User, "container", stale.ContainerName)
-		_ = s.Runtime.RemoveContainer(ctx, stale.ContainerName)
+		cleanupSessionResources(ctx, s.Runtime, stale)
 		_ = s.Store.DeleteSession(stale.User, stale.Project)
 	}
 
@@ -276,8 +294,88 @@ func (s *Session) reconcileUser(ctx context.Context) {
 	}
 	if sess.Status == "grace_period" && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now()) {
 		slog.Info("reconcile: grace period expired", "user", sess.User, "container", sess.ContainerName)
-		_ = s.Runtime.RemoveContainer(ctx, sess.ContainerName)
+		cleanupSessionResources(ctx, s.Runtime, sess)
 		_ = s.Store.DeleteSession(sess.User, sess.Project)
+	}
+}
+
+// resolveProject loads the Podfile (if a project is configured), resolves the
+// cached image, and creates companion services. Returns the image to use,
+// env vars, network ID, and service container IDs.
+func (s *Session) resolveProject(ctx context.Context) (image string, env []string, networkID string, serviceIDs []string, err error) {
+	if s.Project == nil {
+		return s.Image, nil, "", nil, nil
+	}
+
+	raw, err := podfile.FindAndRead(s.Project.LocalPath)
+	if err != nil {
+		return "", nil, "", nil, fmt.Errorf("loading podfile for %s: %w", s.ProjectName, err)
+	}
+	pf, err := podfile.Parse(bytes.NewReader(raw))
+	if err != nil {
+		return "", nil, "", nil, fmt.Errorf("parsing podfile for %s: %w", s.ProjectName, err)
+	}
+	s.pf = pf
+
+	tag := podfile.ComputeTag(s.ProjectName, raw)
+	exists, err := s.Runtime.ImageExists(ctx, tag)
+	if err != nil {
+		return "", nil, "", nil, fmt.Errorf("checking image %s: %w", tag, err)
+	}
+	if !exists {
+		return "", nil, "", nil, fmt.Errorf("image %s not built; run: podspawn update-project %s", tag, s.ProjectName)
+	}
+	image = tag
+
+	if pf.Resources.CPUs > 0 {
+		s.CPUs = pf.Resources.CPUs
+	}
+	if pf.Resources.Memory != "" {
+		mem, _ := config.ParseMemory(pf.Resources.Memory)
+		s.Memory = mem
+	}
+	if pf.Shell != "" {
+		s.Shell = pf.Shell
+	}
+
+	for k, v := range pf.Env {
+		expanded := strings.ReplaceAll(v, "${PODSPAWN_USER}", s.Username)
+		env = append(env, k+"="+expanded)
+	}
+	sort.Strings(env)
+
+	if len(pf.Services) > 0 {
+		netName := fmt.Sprintf("podspawn-%s-%s-net", s.Username, s.ProjectName)
+		networkID, err = s.Runtime.CreateNetwork(ctx, netName)
+		if err != nil {
+			return "", nil, "", nil, fmt.Errorf("creating network: %w", err)
+		}
+		serviceIDs, err = podfile.StartServices(ctx, s.Runtime, pf.Services, networkID, s.containerName())
+		if err != nil {
+			_ = s.Runtime.RemoveNetwork(ctx, networkID)
+			return "", nil, "", nil, fmt.Errorf("starting services: %w", err)
+		}
+	}
+
+	return image, env, networkID, serviceIDs, nil
+}
+
+func (s *Session) cleanupServicesAndNetwork(ctx context.Context, serviceIDs []string, networkID string) {
+	if len(serviceIDs) > 0 {
+		podfile.StopServices(ctx, s.Runtime, serviceIDs)
+	}
+	if networkID != "" {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
+	}
+}
+
+func cleanupSessionResources(ctx context.Context, rt runtime.Runtime, sess *state.Session) {
+	_ = rt.RemoveContainer(ctx, sess.ContainerName)
+	if sess.ServiceIDs != "" {
+		podfile.StopServices(ctx, rt, strings.Split(sess.ServiceIDs, ","))
+	}
+	if sess.NetworkID != "" {
+		_ = rt.RemoveNetwork(ctx, sess.NetworkID)
 	}
 }
 
@@ -312,12 +410,14 @@ func (s *Session) Disconnect(ctx context.Context) {
 		return
 	}
 
-	containerName := s.containerName()
 	if s.Mode == "destroy-on-disconnect" || s.GracePeriod == 0 {
-		slog.Info("destroying container", "user", s.Username, "container", containerName)
-		if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
-			slog.Warn("destroy failed", "container", containerName, "error", err)
+		sess, err := s.Store.GetSession(s.Username, s.ProjectName)
+		if err != nil || sess == nil {
+			slog.Warn("disconnect: session not found for cleanup", "user", s.Username)
+			return
 		}
+		slog.Info("destroying container", "user", s.Username, "container", sess.ContainerName)
+		cleanupSessionResources(ctx, s.Runtime, sess)
 		_ = s.Store.DeleteSession(s.Username, s.ProjectName)
 		return
 	}

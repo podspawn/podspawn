@@ -3,9 +3,13 @@ package spawn
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -575,6 +579,95 @@ func TestReconcileExpiredGracePeriod(t *testing.T) {
 	}
 	if got.ContainerID == "old-id" {
 		t.Error("should have a new container ID, not the old one")
+	}
+}
+
+func TestRunWithProjectFailsWithoutPrebuiltImage(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), []byte("base: ubuntu:24.04\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Project: &config.ProjectConfig{
+			LocalPath: projectDir,
+		},
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error for missing pre-built image")
+	}
+	// Should guide user to run update-project
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "not built") || !strings.Contains(errMsg, "update-project") {
+		t.Errorf("error should guide user, got: %s", errMsg)
+	}
+}
+
+func TestDisconnectCleansUpServices(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy-backend"] = true
+	fake.Containers["svc-pg"] = true
+	fake.Containers["svc-redis"] = true
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		Project:       "backend",
+		ContainerID:   "abc123",
+		ContainerName: "podspawn-deploy-backend",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+		NetworkID:     "net-123",
+		ServiceIDs:    "svc-pg,svc-redis",
+	})
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Runtime:     fake,
+		Store:       store,
+		LockDir:     t.TempDir(),
+		Mode:        "destroy-on-disconnect",
+	}
+
+	sess.Disconnect(context.Background())
+
+	got, _ := store.GetSession("deploy", "backend")
+	if got != nil {
+		t.Error("session should be deleted")
+	}
+	if _, ok := fake.Containers["podspawn-deploy-backend"]; ok {
+		t.Error("dev container should be removed")
+	}
+	if _, ok := fake.Containers["svc-pg"]; ok {
+		t.Error("postgres service should be removed")
+	}
+	if _, ok := fake.Containers["svc-redis"]; ok {
+		t.Error("redis service should be removed")
+	}
+	if len(fake.RemoveNetworkCalls) != 1 || fake.RemoveNetworkCalls[0] != "net-123" {
+		t.Errorf("network should be removed, got calls: %v", fake.RemoveNetworkCalls)
 	}
 }
 
