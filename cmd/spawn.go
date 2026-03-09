@@ -74,6 +74,14 @@ var spawnCmd = &cobra.Command{
 			}
 		}
 
+		uo, err := config.LoadUserOverrides("/etc/podspawn", user)
+		if err != nil {
+			slog.Warn("failed to load user overrides", "user", user, "error", err)
+		}
+		if uo != nil {
+			sess.UserOverrides = uo
+		}
+
 		exitCode := sess.RunAndCleanup(context.Background())
 		os.Exit(exitCode)
 	},

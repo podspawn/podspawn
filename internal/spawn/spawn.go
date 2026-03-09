@@ -24,19 +24,20 @@ import (
 const sftpServerPath = "/usr/lib/openssh/sftp-server"
 
 type Session struct {
-	Username    string
-	ProjectName string                // empty = default image session
-	Project     *config.ProjectConfig // nil = use default image
-	Runtime     runtime.Runtime
-	Image       string
-	Shell       string
-	CPUs        float64
-	Memory      int64
-	Store       state.SessionStore // nil = Phase 0 mode (destroy on exit)
-	LockDir     string
-	GracePeriod time.Duration
-	MaxLifetime time.Duration
-	Mode        string // "grace-period" | "destroy-on-disconnect"
+	Username      string
+	ProjectName   string                // empty = default image session
+	Project       *config.ProjectConfig // nil = use default image
+	UserOverrides *config.UserOverrides // nil = no per-user overrides
+	Runtime       runtime.Runtime
+	Image         string
+	Shell         string
+	CPUs          float64
+	Memory        int64
+	Store         state.SessionStore // nil = Phase 0 mode (destroy on exit)
+	LockDir       string
+	GracePeriod   time.Duration
+	MaxLifetime   time.Duration
+	Mode          string // "grace-period" | "destroy-on-disconnect"
 
 	pf *podfile.Podfile // cached after first parse
 }
@@ -322,11 +323,39 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 	podfile.RunHook(ctx, s.Runtime, containerName, "on_start", s.pf.OnStart)
 }
 
+func (s *Session) applyUserOverrides() {
+	uo := s.UserOverrides
+	if uo == nil {
+		return
+	}
+	if uo.Image != "" {
+		s.Image = uo.Image
+	}
+	if uo.CPUs > 0 {
+		s.CPUs = uo.CPUs
+	}
+	if uo.Memory != "" {
+		if mem, err := config.ParseMemory(uo.Memory); err == nil {
+			s.Memory = mem
+		}
+	}
+	if uo.Shell != "" {
+		s.Shell = uo.Shell
+	}
+	if uo.Dotfiles != nil && s.pf != nil {
+		s.pf.Dotfiles = &podfile.DotfilesConfig{
+			Repo:    uo.Dotfiles.Repo,
+			Install: uo.Dotfiles.Install,
+		}
+	}
+}
+
 // resolveProject loads the Podfile (if a project is configured), resolves the
 // cached image, and creates companion services. Returns the image to use,
 // env vars, network ID, and service container IDs.
 func (s *Session) resolveProject(ctx context.Context) (image string, env []string, networkID string, serviceIDs []string, err error) {
 	if s.Project == nil {
+		s.applyUserOverrides()
 		return s.Image, nil, "", nil, nil
 	}
 
@@ -360,6 +389,9 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 	if pf.Shell != "" {
 		s.Shell = pf.Shell
 	}
+
+	// User overrides take priority over Podfile values
+	s.applyUserOverrides()
 
 	for k, v := range pf.Env {
 		expanded := strings.ReplaceAll(v, "${PODSPAWN_USER}", s.Username)
