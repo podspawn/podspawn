@@ -50,10 +50,11 @@ func (s *Session) containerName() string {
 
 func (s *Session) Run(ctx context.Context) (int, error) {
 	if s.Store != nil {
-		containerName, err := s.ensureContainerWithState(ctx)
+		containerName, isNew, err := s.ensureContainerWithState(ctx)
 		if err != nil {
 			return 1, err
 		}
+		s.runHooks(ctx, containerName, isNew)
 		return s.routeSession(ctx, containerName)
 	}
 
@@ -62,12 +63,12 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 }
 
 // ensureContainerWithState uses locking + state store to manage the container.
-func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) {
+func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, error) {
 	containerName := s.containerName()
 
 	unlock, err := lock.Acquire(s.LockDir, s.Username)
 	if err != nil {
-		return "", fmt.Errorf("acquiring lock: %w", err)
+		return "", false, fmt.Errorf("acquiring lock: %w", err)
 	}
 	defer unlock()
 
@@ -75,7 +76,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 
 	sess, err := s.Store.GetSession(s.Username, s.ProjectName)
 	if err != nil {
-		return "", fmt.Errorf("checking session state: %w", err)
+		return "", false, fmt.Errorf("checking session state: %w", err)
 	}
 
 	if sess != nil {
@@ -83,7 +84,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 		if !alive {
 			slog.Warn("stale session, container gone", "user", s.Username, "container", sess.ContainerName)
 			if err := s.Store.DeleteSession(s.Username, s.ProjectName); err != nil {
-				return "", fmt.Errorf("cleaning stale session: %w", err)
+				return "", false, fmt.Errorf("cleaning stale session: %w", err)
 			}
 			sess = nil
 		}
@@ -93,19 +94,19 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 		if sess.Status == "grace_period" {
 			slog.Info("cancelling grace period", "user", s.Username)
 			if err := s.Store.CancelGracePeriod(s.Username, s.ProjectName); err != nil {
-				return "", err
+				return "", false, err
 			}
 		}
 		if _, err := s.Store.UpdateConnections(s.Username, s.ProjectName, 1); err != nil {
-			return "", err
+			return "", false, err
 		}
 		slog.Info("reattaching to container", "name", sess.ContainerName, "connections", sess.Connections+1)
-		return sess.ContainerName, nil
+		return sess.ContainerName, false, nil
 	}
 
 	image, env, networkID, serviceIDs, err := s.resolveProject(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	slog.Info("creating container", "name", containerName, "image", image)
@@ -125,11 +126,11 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 	})
 	if err != nil {
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
-		return "", err
+		return "", false, err
 	}
 	if err := s.Runtime.StartContainer(ctx, containerName); err != nil {
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
-		return "", err
+		return "", false, err
 	}
 
 	now := time.Now().UTC()
@@ -147,10 +148,10 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, error) 
 		NetworkID:     networkID,
 		ServiceIDs:    strings.Join(serviceIDs, ","),
 	}); err != nil {
-		return "", fmt.Errorf("recording session: %w", err)
+		return "", false, fmt.Errorf("recording session: %w", err)
 	}
 
-	return containerName, nil
+	return containerName, true, nil
 }
 
 // ensureContainerLegacy is the Phase 0 path: no state, no locking.
@@ -297,6 +298,28 @@ func (s *Session) reconcileUser(ctx context.Context) {
 		cleanupSessionResources(ctx, s.Runtime, sess)
 		_ = s.Store.DeleteSession(sess.User, sess.Project)
 	}
+}
+
+func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool) {
+	if s.pf == nil {
+		return
+	}
+
+	if isNew {
+		if s.pf.Dotfiles != nil {
+			if err := podfile.CloneDotfiles(ctx, s.Runtime, containerName, s.pf.Dotfiles); err != nil {
+				slog.Warn("dotfiles setup failed", "error", err)
+			}
+		}
+		for _, repo := range s.pf.Repos {
+			if err := podfile.CloneRepoInContainer(ctx, s.Runtime, containerName, repo); err != nil {
+				slog.Warn("repo clone failed", "url", repo.URL, "error", err)
+			}
+		}
+		podfile.RunHook(ctx, s.Runtime, containerName, "on_create", s.pf.OnCreate)
+	}
+
+	podfile.RunHook(ctx, s.Runtime, containerName, "on_start", s.pf.OnStart)
 }
 
 // resolveProject loads the Podfile (if a project is configured), resolves the
