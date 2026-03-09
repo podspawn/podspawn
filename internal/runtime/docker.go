@@ -8,10 +8,15 @@ import (
 
 	"log/slog"
 
+	"encoding/json"
+	"strings"
+
 	"github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -76,6 +81,17 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 		})
 	}
 
+	var networkCfg *network.NetworkingConfig
+	if opts.NetworkID != "" {
+		networkCfg = &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				opts.NetworkID: {
+					Aliases: []string{opts.NetworkName},
+				},
+			},
+		}
+	}
+
 	resp, err := d.cli.ContainerCreate(ctx, &container.Config{
 		Image:     opts.Image,
 		Cmd:       opts.Cmd,
@@ -83,7 +99,7 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 		Labels:    opts.Labels,
 		OpenStdin: true,
 		Tty:       false,
-	}, hostCfg, nil, nil, opts.Name)
+	}, hostCfg, networkCfg, nil, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("creating container %s: %w", opts.Name, err)
 	}
@@ -170,4 +186,67 @@ func (d *DockerRuntime) ResizeExec(ctx context.Context, execID string, height, w
 		Height: height,
 		Width:  width,
 	})
+}
+
+func (d *DockerRuntime) ImageExists(ctx context.Context, ref string) (bool, error) {
+	_, err := d.cli.ImageInspect(ctx, ref)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspecting image %s: %w", ref, err)
+	}
+	return true, nil
+}
+
+func (d *DockerRuntime) BuildImage(ctx context.Context, buildCtx io.Reader, tag string) error {
+	resp, err := d.cli.ImageBuild(ctx, buildCtx, build.ImageBuildOptions{
+		Tags:        []string{tag},
+		Remove:      true,
+		ForceRemove: true,
+	})
+	if err != nil {
+		return fmt.Errorf("building image %s: %w", tag, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	return consumeBuildOutput(resp.Body)
+}
+
+func consumeBuildOutput(r io.Reader) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg struct {
+			Stream string `json:"stream"`
+			Error  string `json:"error"`
+		}
+		if err := dec.Decode(&msg); err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("build error: %s", msg.Error)
+		}
+		if msg.Stream != "" {
+			slog.Debug("docker build", "output", strings.TrimSpace(msg.Stream))
+		}
+	}
+}
+
+func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string) (string, error) {
+	resp, err := d.cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{"managed-by": "podspawn"},
+	})
+	if err != nil {
+		return "", fmt.Errorf("creating network %s: %w", name, err)
+	}
+	return resp.ID, nil
+}
+
+func (d *DockerRuntime) RemoveNetwork(ctx context.Context, id string) error {
+	if err := d.cli.NetworkRemove(ctx, id); err != nil {
+		return fmt.Errorf("removing network %s: %w", id, err)
+	}
+	return nil
 }

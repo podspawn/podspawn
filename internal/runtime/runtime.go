@@ -7,14 +7,16 @@ import (
 )
 
 type ContainerOpts struct {
-	Name   string
-	Image  string
-	Cmd    []string
-	Env    []string
-	Mounts []Mount
-	CPUs   float64
-	Memory int64
-	Labels map[string]string
+	Name        string
+	Image       string
+	Cmd         []string
+	Env         []string
+	Mounts      []Mount
+	CPUs        float64
+	Memory      int64
+	Labels      map[string]string
+	NetworkID   string // Docker network to attach to
+	NetworkName string // DNS alias on the network
 }
 
 type Mount struct {
@@ -44,4 +46,9 @@ type Runtime interface {
 	StopContainer(ctx context.Context, id string, timeout time.Duration) error
 	RemoveContainer(ctx context.Context, id string) error
 	ResizeExec(ctx context.Context, execID string, height, width uint) error
+
+	BuildImage(ctx context.Context, buildCtx io.Reader, tag string) error
+	ImageExists(ctx context.Context, ref string) (bool, error)
+	CreateNetwork(ctx context.Context, name string) (string, error)
+	RemoveNetwork(ctx context.Context, id string) error
 }

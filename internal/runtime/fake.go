@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"sync"
 	"time"
 )
@@ -18,6 +20,14 @@ type FakeRuntime struct {
 	ExecErr     error
 	CreateErr   error
 	StartErr    error
+
+	Images             map[string]bool
+	BuildCalls         []string // tags passed to BuildImage
+	BuildErr           error
+	Networks           map[string]bool
+	CreateNetworkCalls []string
+	RemoveNetworkCalls []string
+	networkCounter     int
 }
 
 type FakeExecCall struct {
@@ -28,6 +38,8 @@ type FakeExecCall struct {
 func NewFakeRuntime() *FakeRuntime {
 	return &FakeRuntime{
 		Containers: make(map[string]bool),
+		Images:     make(map[string]bool),
+		Networks:   make(map[string]bool),
 	}
 }
 
@@ -91,5 +103,40 @@ func (f *FakeRuntime) RemoveContainer(_ context.Context, id string) error {
 }
 
 func (f *FakeRuntime) ResizeExec(_ context.Context, _ string, _, _ uint) error {
+	return nil
+}
+
+func (f *FakeRuntime) ImageExists(_ context.Context, ref string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Images[ref], nil
+}
+
+func (f *FakeRuntime) BuildImage(_ context.Context, _ io.Reader, tag string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BuildErr != nil {
+		return f.BuildErr
+	}
+	f.BuildCalls = append(f.BuildCalls, tag)
+	f.Images[tag] = true
+	return nil
+}
+
+func (f *FakeRuntime) CreateNetwork(_ context.Context, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.networkCounter++
+	id := fmt.Sprintf("net-%s-%d", name, f.networkCounter)
+	f.Networks[id] = true
+	f.CreateNetworkCalls = append(f.CreateNetworkCalls, name)
+	return id, nil
+}
+
+func (f *FakeRuntime) RemoveNetwork(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.Networks, id)
+	f.RemoveNetworkCalls = append(f.RemoveNetworkCalls, id)
 	return nil
 }
