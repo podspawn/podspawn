@@ -11,11 +11,12 @@ import (
 )
 
 type Config struct {
-	Auth     AuthConfig     `yaml:"auth"`
-	Defaults DefaultsConfig `yaml:"defaults"`
-	Session  SessionConfig  `yaml:"session"`
-	State    StateConfig    `yaml:"state"`
-	Log      LogConfig      `yaml:"log"`
+	Auth         AuthConfig     `yaml:"auth"`
+	Defaults     DefaultsConfig `yaml:"defaults"`
+	Session      SessionConfig  `yaml:"session"`
+	State        StateConfig    `yaml:"state"`
+	Log          LogConfig      `yaml:"log"`
+	ProjectsFile string         `yaml:"projects_file"`
 }
 
 type AuthConfig struct {
@@ -64,6 +65,7 @@ func Defaults() *Config {
 			DBPath:  "/var/lib/podspawn/state.db",
 			LockDir: "/var/lib/podspawn/locks",
 		},
+		ProjectsFile: "/etc/podspawn/projects.yaml",
 	}
 }
 
