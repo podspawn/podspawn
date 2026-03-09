@@ -619,6 +619,85 @@ func TestRunWithProjectFailsWithoutPrebuiltImage(t *testing.T) {
 	}
 }
 
+func TestOnStartRunsOnReattach(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy-backend"] = true
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		Project:       "backend",
+		ContainerID:   "existing-id",
+		ContainerName: "podspawn-deploy-backend",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+	})
+
+	projectDir := t.TempDir()
+	podfileContent := "base: ubuntu:24.04\non_start: echo welcome\non_create: echo first-time\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), []byte(podfileContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Project: &config.ProjectConfig{
+			LocalPath: projectDir,
+		},
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should NOT have created a new container (reattach)
+	if len(fake.CreateCalls) != 0 {
+		t.Errorf("expected 0 create calls (reattach), got %d", len(fake.CreateCalls))
+	}
+
+	// Should have exec calls: on_start hook + the actual command
+	// on_create should NOT run (not a new container)
+	var hookCmds []string
+	for _, call := range fake.ExecCalls {
+		if len(call.Opts.Cmd) >= 3 && call.Opts.Cmd[0] == "sh" && call.Opts.Cmd[1] == "-c" {
+			hookCmds = append(hookCmds, call.Opts.Cmd[2])
+		}
+	}
+
+	foundOnStart := false
+	foundOnCreate := false
+	for _, cmd := range hookCmds {
+		if strings.Contains(cmd, "welcome") {
+			foundOnStart = true
+		}
+		if strings.Contains(cmd, "first-time") {
+			foundOnCreate = true
+		}
+	}
+	if !foundOnStart {
+		t.Error("on_start should run on reattach")
+	}
+	if foundOnCreate {
+		t.Error("on_create should NOT run on reattach")
+	}
+}
+
 func TestDisconnectCleansUpServices(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	fake.Containers["podspawn-deploy-backend"] = true

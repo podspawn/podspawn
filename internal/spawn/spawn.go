@@ -55,6 +55,7 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 		if err != nil {
 			return 1, err
 		}
+		s.ensurePodfileParsed()
 		s.runHooks(ctx, containerName, isNew)
 		return s.routeSession(ctx, containerName)
 	}
@@ -299,6 +300,25 @@ func (s *Session) reconcileUser(ctx context.Context) {
 		cleanupSessionResources(ctx, s.Runtime, sess)
 		_ = s.Store.DeleteSession(sess.User, sess.Project)
 	}
+}
+
+// ensurePodfileParsed loads the Podfile on reattach (where resolveProject
+// doesn't run). Needed so on_start hooks fire on every connection.
+func (s *Session) ensurePodfileParsed() {
+	if s.pf != nil || s.Project == nil {
+		return
+	}
+	raw, err := podfile.FindAndRead(s.Project.LocalPath)
+	if err != nil {
+		slog.Warn("could not load podfile for hooks", "error", err)
+		return
+	}
+	pf, err := podfile.Parse(bytes.NewReader(raw))
+	if err != nil {
+		slog.Warn("could not parse podfile for hooks", "error", err)
+		return
+	}
+	s.pf = pf
 }
 
 func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool) {
