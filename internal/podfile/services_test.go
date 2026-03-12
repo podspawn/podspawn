@@ -104,6 +104,35 @@ func TestStopServices(t *testing.T) {
 	}
 }
 
+func TestStartServicesWithVolumes(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	services := []ServiceConfig{
+		{
+			Name:    "postgres",
+			Image:   "postgres:16",
+			Volumes: []string{"/data/pg:/var/lib/postgresql/data"},
+		},
+	}
+
+	_, err := StartServices(context.Background(), rt, services, "net-123", "prefix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.CreateCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(rt.CreateCalls))
+	}
+	mounts := rt.CreateCalls[0].Mounts
+	if len(mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(mounts))
+	}
+	if mounts[0].Source != "/data/pg" {
+		t.Errorf("mount source = %q, want /data/pg", mounts[0].Source)
+	}
+	if mounts[0].Target != "/var/lib/postgresql/data" {
+		t.Errorf("mount target = %q, want /var/lib/postgresql/data", mounts[0].Target)
+	}
+}
+
 func TestStartServicesEmpty(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
 	ids, err := StartServices(context.Background(), rt, nil, "net-123", "prefix")

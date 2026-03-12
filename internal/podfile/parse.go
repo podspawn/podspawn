@@ -79,6 +79,9 @@ func (pf *Podfile) validate() error {
 	}
 
 	for _, repo := range pf.Repos {
+		if repo.URL == "" {
+			return fmt.Errorf("repo url is required")
+		}
 		if repo.Path != "" && !strings.HasPrefix(repo.Path, "/") {
 			return fmt.Errorf("repo path must be absolute, got %q", repo.Path)
 		}
@@ -86,6 +89,9 @@ func (pf *Podfile) validate() error {
 
 	seen := make(map[string]bool)
 	for _, svc := range pf.Services {
+		if svc.Name == "" {
+			return fmt.Errorf("service name is required")
+		}
 		if svc.Image == "" {
 			return fmt.Errorf("service %q: image is required", svc.Name)
 		}

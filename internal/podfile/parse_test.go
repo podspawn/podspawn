@@ -236,6 +236,36 @@ repos:
 	}
 }
 
+func TestParseRepoURLRequired(t *testing.T) {
+	input := `
+base: ubuntu:24.04
+repos:
+  - path: /workspace/app
+`
+	_, err := Parse(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for repo with empty URL")
+	}
+	if !strings.Contains(err.Error(), "url is required") {
+		t.Errorf("error should mention url requirement, got: %s", err)
+	}
+}
+
+func TestParseServiceEmptyName(t *testing.T) {
+	input := `
+base: ubuntu:24.04
+services:
+  - image: postgres:16
+`
+	_, err := Parse(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for service without name")
+	}
+	if !strings.Contains(err.Error(), "service name is required") {
+		t.Errorf("error = %q, want service name is required", err)
+	}
+}
+
 func TestFindAndRead(t *testing.T) {
 	dir := t.TempDir()
 

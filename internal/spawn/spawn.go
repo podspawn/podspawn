@@ -131,6 +131,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		return "", false, err
 	}
 	if err := s.Runtime.StartContainer(ctx, containerName); err != nil {
+		_ = s.Runtime.RemoveContainer(ctx, containerName)
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
 		return "", false, err
 	}
@@ -150,6 +151,8 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		NetworkID:     networkID,
 		ServiceIDs:    strings.Join(serviceIDs, ","),
 	}); err != nil {
+		_ = s.Runtime.RemoveContainer(ctx, containerName)
+		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
 		return "", false, fmt.Errorf("recording session: %w", err)
 	}
 
@@ -368,6 +371,14 @@ func (s *Session) applyUserOverrides() {
 			Install: uo.Dotfiles.Install,
 		}
 	}
+	if len(uo.Env) > 0 && s.pf != nil {
+		if s.pf.Env == nil {
+			s.pf.Env = make(map[string]string)
+		}
+		for k, v := range uo.Env {
+			s.pf.Env[k] = v
+		}
+	}
 }
 
 // resolveProject loads the Podfile (if a project is configured), resolves the
@@ -415,6 +426,7 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 
 	for k, v := range pf.Env {
 		expanded := strings.ReplaceAll(v, "${PODSPAWN_USER}", s.Username)
+		expanded = strings.ReplaceAll(expanded, "${PODSPAWN_PROJECT}", s.ProjectName)
 		env = append(env, k+"="+expanded)
 	}
 	sort.Strings(env)

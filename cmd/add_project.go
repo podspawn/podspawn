@@ -31,8 +31,11 @@ var addProjectCmd = &cobra.Command{
 			return fmt.Errorf("project %q already registered; use update-project to rebuild", name)
 		}
 
+		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
+		defer cancel()
+
 		localPath := filepath.Join("/var/lib/podspawn/projects", name)
-		if err := podfile.CloneRepo(repo, localPath, branch); err != nil {
+		if err := podfile.CloneRepo(ctx, repo, localPath, branch); err != nil {
 			return err
 		}
 
@@ -50,11 +53,9 @@ var addProjectCmd = &cobra.Command{
 
 		rt, err := runtime.NewDockerRuntime()
 		if err != nil {
+			os.RemoveAll(localPath) //nolint:errcheck
 			return err
 		}
-
-		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
-		defer cancel()
 
 		tag, err := podfile.BuildImageFromPodfile(ctx, rt, pf, raw, name)
 		if err != nil {

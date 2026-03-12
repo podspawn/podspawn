@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/podspawn/podspawn/internal/runtime"
 )
@@ -22,12 +23,24 @@ func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceCo
 			env = append(env, k+"="+v)
 		}
 
+		var mounts []runtime.Mount
+		for _, vol := range svc.Volumes {
+			parts := strings.SplitN(vol, ":", 2)
+			if len(parts) == 2 {
+				mounts = append(mounts, runtime.Mount{
+					Source: parts[0],
+					Target: parts[1],
+				})
+			}
+		}
+
 		id, err := rt.CreateContainer(ctx, runtime.ContainerOpts{
 			Name:        name,
 			Image:       svc.Image,
 			NetworkID:   networkID,
 			NetworkName: svc.Name,
 			Env:         env,
+			Mounts:      mounts,
 			Labels: map[string]string{
 				"managed-by":       "podspawn",
 				"podspawn-service": svc.Name,
@@ -38,8 +51,8 @@ func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceCo
 			return nil, fmt.Errorf("creating service %s: %w", svc.Name, err)
 		}
 
-		if err := rt.StartContainer(ctx, name); err != nil {
-			StopServices(ctx, rt, append(ids, name))
+		if err := rt.StartContainer(ctx, id); err != nil {
+			StopServices(ctx, rt, append(ids, id))
 			return nil, fmt.Errorf("starting service %s: %w", svc.Name, err)
 		}
 

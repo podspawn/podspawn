@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/podspawn/podspawn/internal/config"
+	"github.com/podspawn/podspawn/internal/podfile"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -759,5 +760,178 @@ func TestDisconnectRemovesContainerWithoutStore(t *testing.T) {
 
 	if _, ok := fake.Containers["podspawn-deploy"]; ok {
 		t.Error("container should be removed after disconnect (Phase 0 mode)")
+	}
+}
+
+func TestStartContainerFailureCleansUpContainer(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.StartErr = errors.New("port conflict")
+	store := state.NewFakeStore()
+
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from StartContainer failure")
+	}
+
+	// Container should have been cleaned up, not left orphaned
+	if _, ok := fake.Containers["podspawn-deploy"]; ok {
+		t.Error("container should be removed after StartContainer failure")
+	}
+
+	// No session should exist in the store
+	got, _ := store.GetSession("deploy", "")
+	if got != nil {
+		t.Error("no session should be recorded when StartContainer fails")
+	}
+}
+
+func TestApplyUserOverridesEnvMerge(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	podfileContent := []byte("base: ubuntu:24.04\nenv:\n  EDITOR: vim\n  DB_HOST: localhost\n")
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), podfileContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images[podfile.ComputeTag("backend", podfileContent)] = true
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Project: &config.ProjectConfig{
+			LocalPath: projectDir,
+		},
+		UserOverrides: &config.UserOverrides{
+			Env: map[string]string{
+				"EDITOR":    "nvim",
+				"EXTRA_VAR": "from-override",
+			},
+		},
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that env vars were passed to the container
+	opts := fake.CreateCalls[0]
+	envMap := make(map[string]string)
+	for _, e := range opts.Env {
+		parts := strings.SplitN(e, "=", 2)
+		envMap[parts[0]] = parts[1]
+	}
+
+	// User override should win over Podfile for EDITOR
+	if envMap["EDITOR"] != "nvim" {
+		t.Errorf("EDITOR = %q, want nvim (user override should win)", envMap["EDITOR"])
+	}
+	// Podfile value should survive if not overridden
+	if envMap["DB_HOST"] != "localhost" {
+		t.Errorf("DB_HOST = %q, want localhost (podfile value)", envMap["DB_HOST"])
+	}
+	// Override-only var should be present
+	if envMap["EXTRA_VAR"] != "from-override" {
+		t.Errorf("EXTRA_VAR = %q, want from-override", envMap["EXTRA_VAR"])
+	}
+}
+
+func TestEnvExpansionIncludesProject(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	podfileContent := []byte("base: ubuntu:24.04\nenv:\n  GREETING: \"hello ${PODSPAWN_USER} on ${PODSPAWN_PROJECT}\"\n")
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), podfileContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images[podfile.ComputeTag("backend", podfileContent)] = true
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Project: &config.ProjectConfig{
+			LocalPath: projectDir,
+		},
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := fake.CreateCalls[0]
+	found := false
+	for _, e := range opts.Env {
+		if e == "GREETING=hello deploy on backend" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected GREETING with expanded user+project, got env: %v", opts.Env)
+	}
+}
+
+func TestApplyUserOverridesWithoutPodfile(t *testing.T) {
+	sess := &Session{
+		Username: "deploy",
+		Image:    "ubuntu:24.04",
+		Shell:    "/bin/bash",
+		CPUs:     2.0,
+		Memory:   1024,
+		UserOverrides: &config.UserOverrides{
+			Image:  "node:22",
+			Shell:  "/bin/zsh",
+			CPUs:   4.0,
+			Memory: "8g",
+		},
+	}
+
+	sess.applyUserOverrides()
+
+	if sess.Image != "node:22" {
+		t.Errorf("Image = %q, want node:22", sess.Image)
+	}
+	if sess.Shell != "/bin/zsh" {
+		t.Errorf("Shell = %q, want /bin/zsh", sess.Shell)
+	}
+	if sess.CPUs != 4.0 {
+		t.Errorf("CPUs = %f, want 4.0", sess.CPUs)
+	}
+	// Memory parsed from "8g"
+	if sess.Memory != 8*1024*1024*1024 {
+		t.Errorf("Memory = %d, want 8GiB", sess.Memory)
 	}
 }

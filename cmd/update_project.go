@@ -29,7 +29,10 @@ var updateProjectCmd = &cobra.Command{
 			return fmt.Errorf("project %q not registered; use add-project first", name)
 		}
 
-		if err := podfile.PullRepo(proj.LocalPath); err != nil {
+		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
+		defer cancel()
+
+		if err := podfile.PullRepo(ctx, proj.LocalPath); err != nil {
 			return err
 		}
 
@@ -53,9 +56,6 @@ var updateProjectCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
-		defer cancel()
 
 		tag, err := podfile.BuildImageFromPodfile(ctx, rt, pf, raw, name)
 		if err != nil {
