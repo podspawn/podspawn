@@ -62,6 +62,7 @@ var spawnCmd = &cobra.Command{
 			MaxLifetime: maxLifetime,
 			Mode:        cfg.Session.Mode,
 			Security:    cfg.Security,
+			MaxPerUser:  cfg.Resources.MaxPerUser,
 		}
 		if store != nil {
 			sess.Store = store

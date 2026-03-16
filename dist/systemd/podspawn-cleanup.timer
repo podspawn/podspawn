@@ -1,0 +1,10 @@
+[Unit]
+Description=Run podspawn cleanup every minute
+Documentation=https://podspawn.dev/docs/cli/admin-commands
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+
+[Install]
+WantedBy=timers.target

@@ -151,4 +151,17 @@ func (f *FakeStore) ListSessions() ([]*Session, error) {
 	return out, nil
 }
 
+func (f *FakeStore) ListSessionsByUser(user string) ([]*Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*Session
+	for _, sess := range f.Sessions {
+		if sess.User == user {
+			cp := *sess
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
 func (f *FakeStore) Close() error { return nil }

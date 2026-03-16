@@ -11,13 +11,18 @@ import (
 )
 
 type Config struct {
-	Auth         AuthConfig     `yaml:"auth"`
-	Defaults     DefaultsConfig `yaml:"defaults"`
-	Session      SessionConfig  `yaml:"session"`
-	State        StateConfig    `yaml:"state"`
-	Log          LogConfig      `yaml:"log"`
-	Security     SecurityConfig `yaml:"security"`
-	ProjectsFile string         `yaml:"projects_file"`
+	Auth         AuthConfig      `yaml:"auth"`
+	Defaults     DefaultsConfig  `yaml:"defaults"`
+	Session      SessionConfig   `yaml:"session"`
+	State        StateConfig     `yaml:"state"`
+	Log          LogConfig       `yaml:"log"`
+	Security     SecurityConfig  `yaml:"security"`
+	Resources    ResourcesConfig `yaml:"resources"`
+	ProjectsFile string          `yaml:"projects_file"`
+}
+
+type ResourcesConfig struct {
+	MaxPerUser int `yaml:"max_per_user"`
 }
 
 type SecurityConfig struct {
@@ -82,6 +87,9 @@ func Defaults() *Config {
 			CapAdd:     []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER", "NET_BIND_SERVICE"},
 			NoNewPrivs: true,
 			PidsLimit:  256,
+		},
+		Resources: ResourcesConfig{
+			MaxPerUser: 3,
 		},
 		ProjectsFile: "/etc/podspawn/projects.yaml",
 	}
