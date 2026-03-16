@@ -19,6 +19,7 @@ var configOptionalCommands = map[string]bool{
 	"list": true, "stop": true, "cleanup": true, "status": true,
 	"list-users": true, "remove-user": true, "remove-project": true,
 	"doctor": true, "update": true,
+	"config": true, "servers": true, "ssh": true, "open": true, "ping": true,
 }
 
 var rootCmd = &cobra.Command{
