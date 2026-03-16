@@ -31,9 +31,9 @@ var pingCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			clientCfg, err := loadClientConfigSafe(cfgPath)
+			clientCfg, err := config.LoadClient(cfgPath)
 			if err != nil {
-				return fmt.Errorf("resolving %s: %w", args[0], err)
+				return fmt.Errorf("resolving %s: configure servers in ~/.podspawn/config.yaml", args[0])
 			}
 			resolved, err := clientCfg.ResolveHost(host)
 			if err != nil {
@@ -85,12 +85,4 @@ var pingCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(pingCmd)
-}
-
-func loadClientConfigSafe(path string) (*config.ClientConfig, error) {
-	clientCfg, err := config.LoadClient(path)
-	if err != nil {
-		return &config.ClientConfig{}, nil
-	}
-	return clientCfg, nil
 }

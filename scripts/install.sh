@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="o1x3/podspawn"
+REPO="podspawn/podspawn"
 INSTALL_DIR="/usr/local/bin"
 
 # Detect OS and architecture
