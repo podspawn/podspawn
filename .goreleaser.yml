@@ -1,0 +1,94 @@
+version: 2
+
+env:
+  - CGO_ENABLED=0
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: podspawn
+    binary: podspawn
+    main: .
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/podspawn/podspawn/cmd.Version={{.Version}}
+      - -X github.com/podspawn/podspawn/cmd.Commit={{.ShortCommit}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "Merge pull request"
+  groups:
+    - title: Features
+      regexp: "^.*feat.*:+.*$"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^.*fix.*:+.*$"
+      order: 1
+    - title: Others
+      order: 999
+
+nfpms:
+  - id: podspawn
+    package_name: podspawn
+    vendor: podspawn
+    homepage: https://github.com/o1x3/podspawn
+    maintainer: podspawn <noreply@podspawn.dev>
+    description: Ephemeral SSH dev containers via native sshd
+    license: AGPL-3.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin
+
+brews:
+  - ids:
+      - default
+    repository:
+      owner: o1x3
+      name: homebrew-tap
+    directory: Formula
+    homepage: https://github.com/o1x3/podspawn
+    description: Ephemeral SSH dev containers via native sshd
+    license: AGPL-3.0
+    install: |
+      bin.install "podspawn"
+    test: |
+      system "#{bin}/podspawn", "version"
+
+release:
+  github:
+    owner: o1x3
+    name: podspawn
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
