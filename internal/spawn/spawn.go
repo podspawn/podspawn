@@ -24,7 +24,6 @@ import (
 
 const sftpServerPath = "/usr/lib/openssh/sftp-server"
 const containerAgentDir = "/run/ssh-agent"
-const containerAgentSock = "/run/ssh-agent/agent.sock"
 
 type Session struct {
 	Username      string
@@ -326,7 +325,7 @@ func (s *Session) agentMount() []runtime.Mount {
 
 // prepareAgentForwarding sets up the agent socket for a session exec.
 // If SSH_AUTH_SOCK is set, links the socket into the shared mount dir
-// and returns env vars to pass to the exec.
+// using a per-PID filename to avoid races between concurrent sessions.
 func (s *Session) prepareAgentForwarding() []string {
 	hostSock := os.Getenv("SSH_AUTH_SOCK")
 	if hostSock == "" {
@@ -338,19 +337,20 @@ func (s *Session) prepareAgentForwarding() []string {
 		slog.Warn("agent forwarding: failed to create dir", "path", hostDir, "error", err)
 		return nil
 	}
-	target := filepath.Join(hostDir, "agent.sock")
 
-	// Remove stale socket from previous session
+	// Per-PID socket name prevents races between concurrent sessions
+	sockName := fmt.Sprintf("agent-%d.sock", os.Getpid())
+	target := filepath.Join(hostDir, sockName)
+	containerSock := filepath.Join(containerAgentDir, sockName)
+
 	_ = os.Remove(target)
 
-	// Symlink the current session's socket into the shared dir.
-	// This works because Docker bind mounts resolve symlinks on the host.
 	if err := os.Symlink(hostSock, target); err != nil {
 		slog.Warn("agent forwarding: failed to symlink socket", "source", hostSock, "target", target, "error", err)
 		return nil
 	}
-	slog.Debug("agent forwarding enabled", "host_sock", hostSock, "container_sock", containerAgentSock)
-	return []string{"SSH_AUTH_SOCK=" + containerAgentSock}
+	slog.Debug("agent forwarding enabled", "host_sock", hostSock, "container_sock", containerSock)
+	return []string{"SSH_AUTH_SOCK=" + containerSock}
 }
 
 func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {

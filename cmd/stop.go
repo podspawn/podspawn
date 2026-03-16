@@ -20,6 +20,9 @@ var stopCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		user, project := parseSessionArg(args[0])
+		if user == "" {
+			return fmt.Errorf("invalid session argument %q: user is required", args[0])
+		}
 
 		store, err := state.Open(cfg.State.DBPath)
 		if err != nil {
