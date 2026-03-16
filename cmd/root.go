@@ -13,6 +13,12 @@ var (
 	logFile *os.File
 )
 
+var configOptionalCommands = map[string]bool{
+	"help": true, "completion": true, "connect": true,
+	"setup": true, "server-setup": true, "version": true,
+	"list": true, "stop": true, "cleanup": true, "status": true,
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "podspawn",
 	Short: "Ephemeral SSH dev containers via native sshd",
@@ -21,7 +27,7 @@ var rootCmd = &cobra.Command{
 		configPath, _ := cmd.Flags().GetString("config")
 		loaded, err := config.Load(configPath)
 		if err != nil {
-			if cmd.Name() == "help" || cmd.Name() == "completion" || cmd.Name() == "connect" || cmd.Name() == "setup" || cmd.Name() == "server-setup" || cmd.Name() == "version" || cmd.Name() == "list" || cmd.Name() == "stop" || cmd.Name() == "cleanup" || cmd.Name() == "status" || !cmd.HasParent() {
+			if configOptionalCommands[cmd.Name()] || !cmd.HasParent() {
 				slog.Warn("config load failed, using defaults", "path", configPath, "error", err)
 				loaded = config.Defaults()
 			} else {

@@ -59,11 +59,13 @@ func SetupHarness() (*SSHHarness, error) {
 		return nil, fmt.Errorf("docker daemon not responding: %w", err)
 	}
 
+	dockerfile := testDockerfile()
+
 	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			FromDockerfile: testcontainers.FromDockerfile{
 				Context:    testdataDir(),
-				Dockerfile: "Dockerfile",
+				Dockerfile: dockerfile,
 			},
 			ExposedPorts: []string{"22/tcp"},
 			Binds:        []string{"/var/run/docker.sock:/var/run/docker.sock"},
@@ -272,6 +274,22 @@ func testdataDir() string {
 
 func testdataPath(name string) string {
 	return filepath.Join(testdataDir(), name)
+}
+
+// testDockerfile returns the Dockerfile to use based on PODSPAWN_TEST_DISTRO.
+// Supported: ubuntu (default), debian, rocky, alpine.
+func testDockerfile() string {
+	distro := os.Getenv("PODSPAWN_TEST_DISTRO")
+	switch distro {
+	case "debian":
+		return "Dockerfile.debian"
+	case "rocky":
+		return "Dockerfile.rocky"
+	case "alpine":
+		return "Dockerfile.alpine"
+	default:
+		return "Dockerfile"
+	}
 }
 
 func (h *SSHHarness) ContainerExists(t *testing.T, username string) bool {

@@ -48,10 +48,17 @@ func Open(path string) (*Logger, error) {
 }
 
 func (l *Logger) Close() error {
-	if l == nil || l.file == nil {
+	if l == nil {
 		return nil
 	}
-	return l.file.Close()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.file == nil {
+		return nil
+	}
+	err := l.file.Close()
+	l.file = nil
+	return err
 }
 
 // Log writes an audit event. No-op if Logger is nil.

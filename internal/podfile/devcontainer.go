@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -103,9 +104,14 @@ func commandToString(cmd any) string {
 		}
 		return strings.Join(parts, " && ")
 	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
 		parts := make([]string, 0, len(v))
-		for _, val := range v {
-			if s, ok := val.(string); ok {
+		for _, k := range keys {
+			if s, ok := v[k].(string); ok {
 				parts = append(parts, s)
 			}
 		}

@@ -90,7 +90,11 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	}
 
 	if sess != nil {
-		alive, _ := s.Runtime.ContainerExists(ctx, sess.ContainerName)
+		alive, existsErr := s.Runtime.ContainerExists(ctx, sess.ContainerName)
+		if existsErr != nil {
+			slog.Warn("failed to check container, assuming alive", "container", sess.ContainerName, "error", existsErr)
+			alive = true
+		}
 		if !alive {
 			slog.Warn("stale session, container gone", "user", s.Username, "container", sess.ContainerName)
 			if err := s.Store.DeleteSession(s.Username, s.ProjectName); err != nil {

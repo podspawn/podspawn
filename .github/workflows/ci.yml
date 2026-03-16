@@ -49,6 +49,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [ubuntu, debian, rocky, alpine]
     steps:
       - uses: actions/checkout@v6
 
@@ -59,5 +63,7 @@ jobs:
       - name: Pull test images
         run: docker pull ubuntu:24.04
 
-      - name: SSHD integration tests
+      - name: SSHD integration tests (${{ matrix.distro }})
+        env:
+          PODSPAWN_TEST_DISTRO: ${{ matrix.distro }}
         run: go test -v -race -tags sshd ./test/sshd/ -timeout 300s
