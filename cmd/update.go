@@ -62,6 +62,10 @@ var updateCmd = &cobra.Command{
 		}
 
 		newBinary := filepath.Join(tmpDir, "podspawn")
+		if _, err := os.Stat(newBinary); err != nil {
+			return fmt.Errorf("extracted binary not found in archive")
+		}
+
 		currentBinary, err := os.Executable()
 		if err != nil {
 			return fmt.Errorf("finding current binary: %w", err)
@@ -71,12 +75,19 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("resolving binary path: %w", err)
 		}
 
-		// Atomic replace: rename new over old
-		if err := os.Rename(newBinary, currentBinary); err != nil {
-			// Cross-device rename; copy instead
-			if err := copyFile(newBinary, currentBinary); err != nil {
-				return fmt.Errorf("replacing binary: %w", err)
-			}
+		// Write to temp file in same directory as target (ensures same filesystem
+		// for atomic rename). Falls back to cross-device copy if rename fails.
+		stagingPath := currentBinary + ".new"
+		if err := copyFile(newBinary, stagingPath); err != nil {
+			return fmt.Errorf("staging new binary: %w", err)
+		}
+		if err := os.Chmod(stagingPath, 0755); err != nil {
+			_ = os.Remove(stagingPath)
+			return fmt.Errorf("setting binary permissions: %w", err)
+		}
+		if err := os.Rename(stagingPath, currentBinary); err != nil {
+			_ = os.Remove(stagingPath)
+			return fmt.Errorf("replacing binary: %w", err)
 		}
 
 		fmt.Printf("updated to %s\n", latest)
@@ -139,12 +150,15 @@ func copyFile(src, dst string) error {
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_TRUNC, 0755)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
