@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/podspawn/podspawn/internal/runtime"
@@ -22,6 +23,7 @@ func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceCo
 		for k, v := range svc.Env {
 			env = append(env, k+"="+v)
 		}
+		sort.Strings(env)
 
 		var mounts []runtime.Mount
 		for _, vol := range svc.Volumes {
@@ -31,6 +33,8 @@ func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceCo
 					Source: parts[0],
 					Target: parts[1],
 				})
+			} else {
+				slog.Warn("skipping malformed volume spec, expected source:target", "volume", vol, "service", svc.Name)
 			}
 		}
 

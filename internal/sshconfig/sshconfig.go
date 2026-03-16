@@ -59,7 +59,7 @@ func EnsurePodBlock(configPath string) (bool, error) {
 func hasPodHost(data []byte) bool {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
-		if strings.TrimSpace(scanner.Text()) == "Host *.pod" {
+		if strings.EqualFold(strings.TrimSpace(scanner.Text()), "Host *.pod") {
 			return true
 		}
 	}

@@ -180,7 +180,8 @@ func hasOurAuthKeysCommand(data []byte) bool {
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "AuthorizedKeysCommand") && strings.Contains(line, "podspawn auth-keys") {
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "authorizedkeyscommand") && strings.Contains(line, "podspawn auth-keys") {
 			return true
 		}
 	}
@@ -194,7 +195,8 @@ func hasOtherAuthKeysCommand(data []byte) bool {
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "AuthorizedKeysCommand") && !strings.Contains(line, "podspawn auth-keys") {
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "authorizedkeyscommand") && !strings.Contains(line, "podspawn auth-keys") {
 			return true
 		}
 	}

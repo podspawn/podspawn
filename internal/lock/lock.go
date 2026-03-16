@@ -13,7 +13,7 @@ import (
 //
 // Flock works across processes on the same host (local filesystem only).
 func Acquire(lockDir, username string) (unlock func(), err error) {
-	if err := os.MkdirAll(lockDir, 0755); err != nil {
+	if err := os.MkdirAll(lockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating lock directory: %w", err)
 	}
 
