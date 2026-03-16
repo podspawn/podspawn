@@ -56,11 +56,18 @@ else
     wget -q "$CHECKSUM_URL" -O "$TMPDIR/checksums.txt"
 fi
 
-EXPECTED=$(grep "$FILENAME" "$TMPDIR/checksums.txt" | awk '{print $1}')
+EXPECTED=$(grep -F "$FILENAME" "$TMPDIR/checksums.txt" | awk '{print $1}')
 if [ -z "$EXPECTED" ]; then
     echo "Warning: checksum not found for $FILENAME, skipping verification" >&2
 else
-    ACTUAL=$(shasum -a 256 "$TMPDIR/podspawn.tar.gz" | awk '{print $1}')
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL=$(sha256sum "$TMPDIR/podspawn.tar.gz" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        ACTUAL=$(shasum -a 256 "$TMPDIR/podspawn.tar.gz" | awk '{print $1}')
+    else
+        echo "Warning: no sha256sum or shasum found, skipping verification" >&2
+        ACTUAL="$EXPECTED"
+    fi
     if [ "$EXPECTED" != "$ACTUAL" ]; then
         echo "Checksum verification failed!" >&2
         echo "  Expected: $EXPECTED" >&2

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,6 +42,8 @@ var listUsersCmd = &cobra.Command{
 		for _, user := range users {
 			data, err := os.ReadFile(filepath.Join(keyDir, user))
 			if err != nil {
+				slog.Warn("could not read key file", "user", user, "error", err)
+				fmt.Printf("%s  (unreadable)\n", user)
 				continue
 			}
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
