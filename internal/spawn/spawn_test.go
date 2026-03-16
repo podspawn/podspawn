@@ -1533,3 +1533,98 @@ func TestMaxPerUserZeroMeansUnlimited(t *testing.T) {
 		t.Fatalf("MaxPerUser=0 should mean unlimited, got: %v", err)
 	}
 }
+
+func TestResolveProjectNetworkCreated(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	// Default image session (no project), verify network is still created
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.CreateNetworkCalls) != 1 {
+		t.Fatalf("expected 1 network creation for default image session, got %d", len(fake.CreateNetworkCalls))
+	}
+	if fake.CreateNetworkCalls[0] != "podspawn-deploy-net" {
+		t.Errorf("network name = %q, want podspawn-deploy-net", fake.CreateNetworkCalls[0])
+	}
+
+	// Session should record the network ID
+	got, _ := store.GetSession("deploy", "")
+	if got == nil {
+		t.Fatal("session should exist")
+	}
+	if got.NetworkID == "" {
+		t.Error("session should record network ID even for default image sessions")
+	}
+
+	// Container should reference that network
+	opts := fake.CreateCalls[0]
+	if opts.NetworkID == "" {
+		t.Error("container should be attached to network for default image session")
+	}
+}
+
+func TestMaxPerUserAllowsReattach(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	// User already has 2 sessions (at the limit)
+	for _, proj := range []string{"api", "web"} {
+		fake.Containers["podspawn-deploy-"+proj] = true
+		_ = store.CreateSession(&state.Session{
+			User: "deploy", Project: proj, ContainerID: "podspawn-deploy-" + proj,
+			ContainerName: "podspawn-deploy-" + proj, Image: "ubuntu:24.04",
+			Status: "running", Connections: 1,
+			CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		})
+	}
+
+	// Reattach to "api" (already exists) should work despite being at the limit
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "api",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+		MaxPerUser:  2,
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatalf("reattach should succeed even at max session limit, got: %v", err)
+	}
+
+	// Should NOT have created a new container
+	if len(fake.CreateCalls) != 0 {
+		t.Errorf("expected 0 create calls (reattach), got %d", len(fake.CreateCalls))
+	}
+
+	// Connection count should be incremented
+	got, _ := store.GetSession("deploy", "api")
+	if got.Connections != 2 {
+		t.Errorf("connections = %d, want 2 after reattach", got.Connections)
+	}
+}
