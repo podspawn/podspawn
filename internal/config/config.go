@@ -53,7 +53,8 @@ type StateConfig struct {
 }
 
 type LogConfig struct {
-	File string `yaml:"file"`
+	File     string `yaml:"file"`
+	AuditLog string `yaml:"audit_log"`
 }
 
 func Defaults() *Config {

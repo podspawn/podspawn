@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/lock"
 	"github.com/podspawn/podspawn/internal/podfile"
@@ -41,6 +42,7 @@ type Session struct {
 	MaxLifetime   time.Duration
 	Mode          string // "grace-period" | "destroy-on-disconnect"
 	Security      config.SecurityConfig
+	Audit         *audit.Logger // nil = no audit logging
 
 	pf *podfile.Podfile // cached after first parse
 }
@@ -110,6 +112,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 			return "", false, err
 		}
 		slog.Info("reattaching to container", "name", sess.ContainerName, "connections", sess.Connections+1)
+		s.Audit.Connect(s.Username, s.ProjectName, sess.ContainerName, sess.Connections+1)
 		return sess.ContainerName, false, nil
 	}
 
@@ -174,6 +177,8 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		return "", false, fmt.Errorf("recording session: %w", err)
 	}
 
+	s.Audit.ContainerCreate(s.Username, s.ProjectName, containerName, image)
+	s.Audit.Connect(s.Username, s.ProjectName, containerName, 1)
 	return containerName, true, nil
 }
 
@@ -222,6 +227,11 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 func (s *Session) routeSession(ctx context.Context, containerName string) (int, error) {
 	agentEnv := s.prepareAgentForwarding()
 	origCmd := os.Getenv("SSH_ORIGINAL_COMMAND")
+
+	if origCmd != "" {
+		s.Audit.Command(s.Username, s.ProjectName, origCmd)
+	}
+
 	switch {
 	case origCmd == "":
 		return s.interactiveShell(ctx, containerName, agentEnv)
@@ -593,6 +603,8 @@ func (s *Session) Disconnect(ctx context.Context) {
 		return
 	}
 
+	s.Audit.Disconnect(s.Username, s.ProjectName, s.containerName(), count)
+
 	if count > 0 {
 		slog.Info("session still active", "user", s.Username, "connections", count)
 		return
@@ -607,6 +619,7 @@ func (s *Session) Disconnect(ctx context.Context) {
 		slog.Info("destroying container", "user", s.Username, "container", sess.ContainerName)
 		cleanupSessionResources(ctx, s.Runtime, sess)
 		_ = s.Store.DeleteSession(s.Username, s.ProjectName)
+		s.Audit.ContainerDestroy(s.Username, s.ProjectName, sess.ContainerName, "disconnect")
 		return
 	}
 
