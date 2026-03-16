@@ -38,6 +38,7 @@ type SessionStore interface {
 	ExpiredGracePeriods() ([]*Session, error)
 	ExpiredLifetimes() ([]*Session, error)
 	StaleZeroConnections(user, project string) (*Session, error)
+	ListSessions() ([]*Session, error)
 	Close() error
 }
 
@@ -232,6 +233,10 @@ func (s *Store) StaleZeroConnections(user, project string) (*Session, error) {
 		return nil, err
 	}
 	return sess, nil
+}
+
+func (s *Store) ListSessions() ([]*Session, error) {
+	return s.queryMultiple(`SELECT ` + sessionColumns + ` FROM sessions ORDER BY user, project`)
 }
 
 func (s *Store) queryMultiple(query string, args ...any) ([]*Session, error) {

@@ -133,4 +133,15 @@ func (f *FakeStore) StaleZeroConnections(user, project string) (*Session, error)
 	return nil, nil
 }
 
+func (f *FakeStore) ListSessions() ([]*Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*Session
+	for _, sess := range f.Sessions {
+		cp := *sess
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
 func (f *FakeStore) Close() error { return nil }
