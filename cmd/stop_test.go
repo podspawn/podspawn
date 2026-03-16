@@ -12,6 +12,9 @@ func TestParseSessionArg(t *testing.T) {
 		{"alice@backend", "alice", "backend"},
 		{"@project", "", "project"},
 		{"alice@", "alice", ""},
+		{"", "", ""},
+		{"@", "", ""},
+		{"alice@dev@extra", "alice", "dev@extra"},
 	}
 	for _, tt := range tests {
 		user, project := parseSessionArg(tt.arg)
