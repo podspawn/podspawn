@@ -138,6 +138,7 @@ func (h *SSHHarness) AddUser(t *testing.T, username string) {
 
 	cmds := [][]string{
 		{"useradd", "-m", "-s", "/bin/bash", username},
+		{"usermod", "-p", "*", username}, // unlock for key auth (Alpine sshd rejects locked accounts)
 		{"mkdir", "-p", "/etc/podspawn/keys"},
 		{"sh", "-c", fmt.Sprintf("echo '%s' > /etc/podspawn/keys/%s", strings.TrimSpace(string(pubKey)), username)},
 	}
