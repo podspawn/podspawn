@@ -22,6 +22,8 @@ import (
 )
 
 const sftpServerPath = "/usr/lib/openssh/sftp-server"
+const containerAgentDir = "/run/ssh-agent"
+const containerAgentSock = "/run/ssh-agent/agent.sock"
 
 type Session struct {
 	Username      string
@@ -40,6 +42,10 @@ type Session struct {
 	Mode          string // "grace-period" | "destroy-on-disconnect"
 
 	pf *podfile.Podfile // cached after first parse
+}
+
+func (s *Session) agentHostDir() string {
+	return filepath.Join(os.TempDir(), "podspawn-agent-"+s.Username)
 }
 
 func (s *Session) containerName() string {
@@ -111,12 +117,15 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		return "", false, err
 	}
 
+	mounts := s.agentMount()
+
 	slog.Info("creating container", "name", containerName, "image", image)
 	id, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 		Name:        containerName,
 		Image:       image,
 		Cmd:         []string{"sleep", "infinity"},
 		Env:         env,
+		Mounts:      mounts,
 		CPUs:        s.CPUs,
 		Memory:      s.Memory,
 		NetworkID:   networkID,
@@ -172,6 +181,7 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 			Name:   containerName,
 			Image:  s.Image,
 			Cmd:    []string{"sleep", "infinity"},
+			Mounts: s.agentMount(),
 			CPUs:   s.CPUs,
 			Memory: s.Memory,
 			Labels: map[string]string{
@@ -193,14 +203,15 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 }
 
 func (s *Session) routeSession(ctx context.Context, containerName string) (int, error) {
+	agentEnv := s.prepareAgentForwarding()
 	origCmd := os.Getenv("SSH_ORIGINAL_COMMAND")
 	switch {
 	case origCmd == "":
-		return s.interactiveShell(ctx, containerName)
+		return s.interactiveShell(ctx, containerName, agentEnv)
 	case isSFTP(origCmd):
-		return s.execCommand(ctx, containerName, sftpServerPath)
+		return s.execCommand(ctx, containerName, sftpServerPath, agentEnv)
 	default:
-		return s.execCommand(ctx, containerName, origCmd)
+		return s.execCommand(ctx, containerName, origCmd, agentEnv)
 	}
 }
 
@@ -215,7 +226,7 @@ func isSFTP(cmd string) bool {
 	return filepath.Base(fields[0]) == "sftp-server"
 }
 
-func (s *Session) interactiveShell(ctx context.Context, containerName string) (int, error) {
+func (s *Session) interactiveShell(ctx context.Context, containerName string, env []string) (int, error) {
 	stdinFd := int(os.Stdin.Fd())
 	if term.IsTerminal(stdinFd) {
 		oldState, err := term.MakeRaw(stdinFd)
@@ -231,6 +242,7 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string) (i
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
+		Env:    env,
 		ExecIDCallback: func(execID string) {
 			go handleResize(ctx, s.Runtime, execID)
 		},
@@ -242,18 +254,62 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string) (i
 	return exitCode, nil
 }
 
-func (s *Session) execCommand(ctx context.Context, containerName, origCmd string) (int, error) {
+func (s *Session) execCommand(ctx context.Context, containerName, origCmd string, env []string) (int, error) {
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
 		Cmd:    []string{"sh", "-c", origCmd},
 		TTY:    false,
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
+		Env:    env,
 	})
 	if err != nil {
 		return 1, err
 	}
 	return exitCode, nil
+}
+
+// agentMount returns the bind mount for SSH agent forwarding.
+// Creates the host-side directory if it doesn't exist.
+func (s *Session) agentMount() []runtime.Mount {
+	hostDir := s.agentHostDir()
+	if err := os.MkdirAll(hostDir, 0700); err != nil {
+		slog.Warn("failed to create agent dir", "path", hostDir, "error", err)
+		return nil
+	}
+	return []runtime.Mount{{
+		Source: hostDir,
+		Target: containerAgentDir,
+	}}
+}
+
+// prepareAgentForwarding sets up the agent socket for a session exec.
+// If SSH_AUTH_SOCK is set, links the socket into the shared mount dir
+// and returns env vars to pass to the exec.
+func (s *Session) prepareAgentForwarding() []string {
+	hostSock := os.Getenv("SSH_AUTH_SOCK")
+	if hostSock == "" {
+		return nil
+	}
+
+	hostDir := s.agentHostDir()
+	if err := os.MkdirAll(hostDir, 0700); err != nil {
+		slog.Warn("agent forwarding: failed to create dir", "path", hostDir, "error", err)
+		return nil
+	}
+	target := filepath.Join(hostDir, "agent.sock")
+
+	// Remove stale socket from previous session
+	_ = os.Remove(target)
+
+	// Symlink the current session's socket into the shared dir.
+	// This works because Docker bind mounts resolve symlinks on the host.
+	if err := os.Symlink(hostSock, target); err != nil {
+		slog.Warn("agent forwarding: failed to symlink socket", "source", hostSock, "target", target, "error", err)
+		return nil
+	}
+	slog.Debug("agent forwarding enabled", "host_sock", hostSock, "container_sock", containerAgentSock)
+	return []string{"SSH_AUTH_SOCK=" + containerAgentSock}
 }
 
 func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {

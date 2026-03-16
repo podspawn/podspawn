@@ -904,6 +904,114 @@ func TestEnvExpansionIncludesProject(t *testing.T) {
 	}
 }
 
+func TestAgentForwardingCreatesSymlinkAndPassesEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "agent.12345")
+	// Create a dummy file to represent the SSH agent socket
+	if err := os.WriteFile(sockPath, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SSH_AUTH_SOCK", sockPath)
+
+	sess := &Session{Username: "deploy"}
+	// Override agentHostDir by using a temp dir for the user
+	t.Setenv("TMPDIR", tmpDir)
+
+	env := sess.prepareAgentForwarding()
+
+	if len(env) != 1 {
+		t.Fatalf("expected 1 env var, got %d", len(env))
+	}
+	if env[0] != "SSH_AUTH_SOCK="+containerAgentSock {
+		t.Errorf("env = %q, want SSH_AUTH_SOCK=%s", env[0], containerAgentSock)
+	}
+
+	// Verify symlink was created
+	agentDir := sess.agentHostDir()
+	linkTarget, err := os.Readlink(filepath.Join(agentDir, "agent.sock"))
+	if err != nil {
+		t.Fatalf("symlink not created: %v", err)
+	}
+	if linkTarget != sockPath {
+		t.Errorf("symlink target = %q, want %q", linkTarget, sockPath)
+	}
+}
+
+func TestAgentForwardingNoopWithoutSocket(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	sess := &Session{Username: "deploy"}
+	env := sess.prepareAgentForwarding()
+
+	if env != nil {
+		t.Errorf("expected nil env when SSH_AUTH_SOCK is empty, got %v", env)
+	}
+}
+
+func TestAgentMountIncludedInContainerCreation(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+
+	t.Setenv("SSH_ORIGINAL_COMMAND", "echo hello")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.CreateCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(fake.CreateCalls))
+	}
+	opts := fake.CreateCalls[0]
+
+	// Should have agent mount even when SSH_AUTH_SOCK is empty
+	// (mount is created at container creation for future sessions)
+	foundAgentMount := false
+	for _, m := range opts.Mounts {
+		if m.Target == containerAgentDir {
+			foundAgentMount = true
+		}
+	}
+	if !foundAgentMount {
+		t.Error("agent mount directory should be included in container creation")
+	}
+}
+
+func TestAgentEnvPassedToExec(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "agent.99")
+	if err := os.WriteFile(sockPath, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	t.Setenv("SSH_ORIGINAL_COMMAND", "git clone repo")
+	t.Setenv("SSH_AUTH_SOCK", sockPath)
+	t.Setenv("TMPDIR", tmpDir)
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.ExecCalls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(fake.ExecCalls))
+	}
+	execEnv := fake.ExecCalls[0].Opts.Env
+	found := false
+	for _, e := range execEnv {
+		if e == "SSH_AUTH_SOCK="+containerAgentSock {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("SSH_AUTH_SOCK not passed to exec, got env: %v", execEnv)
+	}
+}
+
 func TestApplyUserOverridesWithoutPodfile(t *testing.T) {
 	sess := &Session{
 		Username: "deploy",

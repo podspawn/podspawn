@@ -120,6 +120,7 @@ func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecO
 		AttachStdin:  opts.Stdin != nil,
 		AttachStdout: true,
 		AttachStderr: true,
+		Env:          opts.Env,
 	}
 
 	exec, err := d.cli.ContainerExecCreate(ctx, containerID, execCfg)
