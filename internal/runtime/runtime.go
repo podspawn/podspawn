@@ -17,6 +17,15 @@ type ContainerOpts struct {
 	Labels      map[string]string
 	NetworkID   string // Docker network to attach to
 	NetworkName string // DNS alias on the network
+
+	// Security options
+	CapDrop        []string // capabilities to drop (e.g., ["ALL"])
+	CapAdd         []string // capabilities to re-add after drop
+	SecurityOpt    []string // e.g., ["no-new-privileges:true"]
+	PidsLimit      int64    // max PIDs in container (0 = unlimited)
+	ReadonlyRootfs bool
+	Tmpfs          map[string]string // tmpfs mounts (target -> options)
+	RuntimeName    string            // container runtime (e.g., "runsc" for gVisor)
 }
 
 type Mount struct {

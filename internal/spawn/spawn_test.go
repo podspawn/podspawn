@@ -1012,6 +1012,70 @@ func TestAgentEnvPassedToExec(t *testing.T) {
 	}
 }
 
+func TestSecurityOptsPassedToContainer(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	sess.Security = config.SecurityConfig{
+		CapDrop:      []string{"ALL"},
+		CapAdd:       []string{"CHOWN", "SETUID", "SETGID"},
+		NoNewPrivs:   true,
+		PidsLimit:    256,
+		ReadonlyRoot: true,
+		Tmpfs: map[string]string{
+			"/tmp": "rw,noexec,nosuid,size=512m",
+		},
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fake.CreateCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(fake.CreateCalls))
+	}
+	opts := fake.CreateCalls[0]
+
+	if len(opts.CapDrop) != 1 || opts.CapDrop[0] != "ALL" {
+		t.Errorf("CapDrop = %v, want [ALL]", opts.CapDrop)
+	}
+	if len(opts.CapAdd) != 3 {
+		t.Errorf("CapAdd = %v, want 3 items", opts.CapAdd)
+	}
+	if len(opts.SecurityOpt) != 1 || opts.SecurityOpt[0] != "no-new-privileges:true" {
+		t.Errorf("SecurityOpt = %v, want [no-new-privileges:true]", opts.SecurityOpt)
+	}
+	if opts.PidsLimit != 256 {
+		t.Errorf("PidsLimit = %d, want 256", opts.PidsLimit)
+	}
+	if !opts.ReadonlyRootfs {
+		t.Error("ReadonlyRootfs should be true")
+	}
+	if opts.Tmpfs["/tmp"] != "rw,noexec,nosuid,size=512m" {
+		t.Errorf("Tmpfs = %v, want /tmp entry", opts.Tmpfs)
+	}
+}
+
+func TestGVisorRuntimePassedToContainer(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	sess.Security = config.SecurityConfig{
+		RuntimeName: "runsc",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := fake.CreateCalls[0]
+	if opts.RuntimeName != "runsc" {
+		t.Errorf("RuntimeName = %q, want runsc", opts.RuntimeName)
+	}
+}
+
 func TestApplyUserOverridesWithoutPodfile(t *testing.T) {
 	sess := &Session{
 		Username: "deploy",

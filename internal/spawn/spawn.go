@@ -40,6 +40,7 @@ type Session struct {
 	GracePeriod   time.Duration
 	MaxLifetime   time.Duration
 	Mode          string // "grace-period" | "destroy-on-disconnect"
+	Security      config.SecurityConfig
 
 	pf *podfile.Podfile // cached after first parse
 }
@@ -118,18 +119,26 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	}
 
 	mounts := s.agentMount()
+	capDrop, capAdd, secOpt, pidsLimit, readonlyRoot, tmpfs, runtimeName := s.securityOpts()
 
 	slog.Info("creating container", "name", containerName, "image", image)
 	id, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
-		Name:        containerName,
-		Image:       image,
-		Cmd:         []string{"sleep", "infinity"},
-		Env:         env,
-		Mounts:      mounts,
-		CPUs:        s.CPUs,
-		Memory:      s.Memory,
-		NetworkID:   networkID,
-		NetworkName: containerName,
+		Name:           containerName,
+		Image:          image,
+		Cmd:            []string{"sleep", "infinity"},
+		Env:            env,
+		Mounts:         mounts,
+		CPUs:           s.CPUs,
+		Memory:         s.Memory,
+		NetworkID:      networkID,
+		NetworkName:    containerName,
+		CapDrop:        capDrop,
+		CapAdd:         capAdd,
+		SecurityOpt:    secOpt,
+		PidsLimit:      pidsLimit,
+		ReadonlyRootfs: readonlyRoot,
+		Tmpfs:          tmpfs,
+		RuntimeName:    runtimeName,
 		Labels: map[string]string{
 			"managed-by":    "podspawn",
 			"podspawn-user": s.Username,
@@ -176,14 +185,22 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 	}
 
 	if !exists {
+		capDrop, capAdd, secOpt, pidsLimit, readonlyRoot, tmpfs, runtimeName := s.securityOpts()
 		slog.Info("creating container", "name", containerName, "image", s.Image)
 		_, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
-			Name:   containerName,
-			Image:  s.Image,
-			Cmd:    []string{"sleep", "infinity"},
-			Mounts: s.agentMount(),
-			CPUs:   s.CPUs,
-			Memory: s.Memory,
+			Name:           containerName,
+			Image:          s.Image,
+			Cmd:            []string{"sleep", "infinity"},
+			Mounts:         s.agentMount(),
+			CPUs:           s.CPUs,
+			Memory:         s.Memory,
+			CapDrop:        capDrop,
+			CapAdd:         capAdd,
+			SecurityOpt:    secOpt,
+			PidsLimit:      pidsLimit,
+			ReadonlyRootfs: readonlyRoot,
+			Tmpfs:          tmpfs,
+			RuntimeName:    runtimeName,
 			Labels: map[string]string{
 				"managed-by":    "podspawn",
 				"podspawn-user": s.Username,
@@ -267,6 +284,20 @@ func (s *Session) execCommand(ctx context.Context, containerName, origCmd string
 		return 1, err
 	}
 	return exitCode, nil
+}
+
+func (s *Session) securityOpts() (capDrop, capAdd, secOpt []string, pidsLimit int64, readonlyRoot bool, tmpfs map[string]string, runtimeName string) {
+	sec := s.Security
+	capDrop = sec.CapDrop
+	capAdd = sec.CapAdd
+	if sec.NoNewPrivs {
+		secOpt = append(secOpt, "no-new-privileges:true")
+	}
+	pidsLimit = sec.PidsLimit
+	readonlyRoot = sec.ReadonlyRoot
+	tmpfs = sec.Tmpfs
+	runtimeName = sec.RuntimeName
+	return
 }
 
 // agentMount returns the bind mount for SSH agent forwarding.

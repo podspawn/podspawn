@@ -16,7 +16,18 @@ type Config struct {
 	Session      SessionConfig  `yaml:"session"`
 	State        StateConfig    `yaml:"state"`
 	Log          LogConfig      `yaml:"log"`
+	Security     SecurityConfig `yaml:"security"`
 	ProjectsFile string         `yaml:"projects_file"`
+}
+
+type SecurityConfig struct {
+	CapDrop      []string          `yaml:"cap_drop"`
+	CapAdd       []string          `yaml:"cap_add"`
+	NoNewPrivs   bool              `yaml:"no_new_privileges"`
+	PidsLimit    int64             `yaml:"pids_limit"`
+	ReadonlyRoot bool              `yaml:"readonly_rootfs"`
+	Tmpfs        map[string]string `yaml:"tmpfs"`
+	RuntimeName  string            `yaml:"runtime"` // "docker" (default), "runsc" (gVisor)
 }
 
 type AuthConfig struct {
@@ -64,6 +75,12 @@ func Defaults() *Config {
 		State: StateConfig{
 			DBPath:  "/var/lib/podspawn/state.db",
 			LockDir: "/var/lib/podspawn/locks",
+		},
+		Security: SecurityConfig{
+			CapDrop:    []string{"ALL"},
+			CapAdd:     []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER", "NET_BIND_SERVICE"},
+			NoNewPrivs: true,
+			PidsLimit:  256,
 		},
 		ProjectsFile: "/etc/podspawn/projects.yaml",
 	}
