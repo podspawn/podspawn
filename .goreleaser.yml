@@ -71,10 +71,10 @@ nfpms:
       - rpm
     bindir: /usr/local/bin
     contents:
-      - src: dist/systemd/podspawn-cleanup.service
+      - src: packaging/systemd/podspawn-cleanup.service
         dst: /etc/systemd/system/podspawn-cleanup.service
         type: config
-      - src: dist/systemd/podspawn-cleanup.timer
+      - src: packaging/systemd/podspawn-cleanup.timer
         dst: /etc/systemd/system/podspawn-cleanup.timer
         type: config
 
