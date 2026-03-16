@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/spawn"
@@ -82,6 +83,15 @@ var spawnCmd = &cobra.Command{
 		if uo != nil {
 			sess.UserOverrides = uo
 		}
+
+		auditLogger, auditErr := audit.Open(cfg.Log.AuditLog)
+		if auditErr != nil {
+			slog.Warn("failed to open audit log", "error", auditErr)
+		}
+		if auditLogger != nil {
+			defer func() { _ = auditLogger.Close() }()
+		}
+		sess.Audit = auditLogger
 
 		exitCode := sess.RunAndCleanup(context.Background())
 		os.Exit(exitCode)
