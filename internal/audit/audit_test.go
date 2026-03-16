@@ -2,9 +2,11 @@ package audit
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -73,6 +75,47 @@ func TestOpenEmptyPathReturnsNil(t *testing.T) {
 	}
 	if logger != nil {
 		t.Error("empty path should return nil logger")
+	}
+}
+
+func TestConcurrentLogging(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	logger, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 10
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(n int) {
+			defer wg.Done()
+			user := fmt.Sprintf("worker-%d", n)
+			logger.Connect(user, "proj", "ctr", 1)
+		}(i)
+	}
+	wg.Wait()
+
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != workers {
+		t.Fatalf("expected %d audit lines, got %d", workers, len(lines))
+	}
+
+	for i, line := range lines {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("line %d not valid JSON: %v", i, err)
+		}
 	}
 }
 

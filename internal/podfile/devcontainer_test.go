@@ -208,3 +208,65 @@ func TestStripJSONComments(t *testing.T) {
 		}
 	}
 }
+
+func TestDevContainerCommandMap(t *testing.T) {
+	dc := &DevContainer{
+		Image: "ubuntu:24.04",
+		PostCreateCommand: map[string]any{
+			"test":  "go test ./...",
+			"build": "go build ./cmd/...",
+		},
+	}
+	pf := dc.ToPodfile()
+
+	want := "go build ./cmd/... && go test ./..."
+	if pf.OnCreate != want {
+		t.Errorf("OnCreate = %q, want %q", pf.OnCreate, want)
+	}
+}
+
+func TestDevContainerEnvOverlapPrecedence(t *testing.T) {
+	dc := &DevContainer{
+		Image:        "ubuntu:24.04",
+		ContainerEnv: map[string]string{"LANG": "C"},
+		RemoteEnv:    map[string]string{"LANG": "en_US.UTF-8"},
+	}
+	pf := dc.ToPodfile()
+
+	if pf.Env["LANG"] != "en_US.UTF-8" {
+		t.Errorf("Env[LANG] = %q, want remoteEnv to win", pf.Env["LANG"])
+	}
+}
+
+func TestDevContainerRemoteUser(t *testing.T) {
+	dc := &DevContainer{
+		Image:      "node:22",
+		RemoteUser: "vscode",
+	}
+	pf := dc.ToPodfile()
+
+	if pf.Base != "node:22" {
+		t.Errorf("Base = %q, want node:22", pf.Base)
+	}
+}
+
+func TestStripJSONCommentsStringWithSlashes(t *testing.T) {
+	input := `{"homepage": "https://example.com/docs/getting-started"}`
+	got := string(stripJSONComments([]byte(input)))
+	if got != input {
+		t.Errorf("slashes inside string were mangled:\ngot  %q\nwant %q", got, input)
+	}
+}
+
+func TestFindAndReadBadDevContainer(t *testing.T) {
+	dir := t.TempDir()
+	badJSON := `{"image": not valid json!!!}`
+	if err := os.WriteFile(filepath.Join(dir, ".devcontainer.json"), []byte(badJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := FindAndRead(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid devcontainer JSON")
+	}
+}

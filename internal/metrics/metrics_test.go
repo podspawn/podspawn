@@ -86,6 +86,37 @@ func TestWritePrometheus(t *testing.T) {
 	}
 }
 
+func TestCollectNilRuntime(t *testing.T) {
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	snap, err := Collect(ctx, store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.DockerContainers != 0 {
+		t.Errorf("DockerContainers = %d, want 0 with nil runtime", snap.DockerContainers)
+	}
+	if snap.TotalSessions != 0 {
+		t.Errorf("TotalSessions = %d, want 0", snap.TotalSessions)
+	}
+}
+
+func TestWriteHumanNoSessions(t *testing.T) {
+	snap := &Snapshot{}
+
+	var buf bytes.Buffer
+	WriteHuman(&buf, snap)
+	out := buf.String()
+
+	if strings.Contains(out, "Oldest:") {
+		t.Errorf("zero snapshot should not print Oldest line, got: %s", out)
+	}
+	if !strings.Contains(out, "0 total") {
+		t.Errorf("missing zero session count: %s", out)
+	}
+}
+
 func TestWriteHuman(t *testing.T) {
 	snap := &Snapshot{
 		TotalSessions:    2,
