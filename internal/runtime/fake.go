@@ -140,3 +140,36 @@ func (f *FakeRuntime) RemoveNetwork(_ context.Context, id string) error {
 	f.RemoveNetworkCalls = append(f.RemoveNetworkCalls, id)
 	return nil
 }
+
+func (f *FakeRuntime) ListContainers(_ context.Context, labelFilter map[string]string) ([]ContainerInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []ContainerInfo
+	for name := range f.Containers {
+		result = append(result, ContainerInfo{
+			ID:    name,
+			Name:  name,
+			State: "running",
+			Labels: map[string]string{
+				"managed-by": "podspawn",
+			},
+		})
+	}
+	return result, nil
+}
+
+func (f *FakeRuntime) InspectContainer(_ context.Context, id string) (*ContainerInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.Containers[id]; !ok {
+		return nil, nil
+	}
+	return &ContainerInfo{
+		ID:    id,
+		Name:  id,
+		State: "running",
+		Labels: map[string]string{
+			"managed-by": "podspawn",
+		},
+	}, nil
+}

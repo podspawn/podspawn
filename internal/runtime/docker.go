@@ -250,3 +250,53 @@ func (d *DockerRuntime) RemoveNetwork(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+func (d *DockerRuntime) ListContainers(ctx context.Context, labelFilter map[string]string) ([]ContainerInfo, error) {
+	containers, err := d.cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil, fmt.Errorf("listing containers: %w", err)
+	}
+
+	var result []ContainerInfo
+	for _, c := range containers {
+		match := true
+		for k, v := range labelFilter {
+			if c.Labels[k] != v {
+				match = false
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+		result = append(result, ContainerInfo{
+			ID:     c.ID,
+			Name:   name,
+			Image:  c.Image,
+			State:  c.State,
+			Labels: c.Labels,
+		})
+	}
+	return result, nil
+}
+
+func (d *DockerRuntime) InspectContainer(ctx context.Context, id string) (*ContainerInfo, error) {
+	info, err := d.cli.ContainerInspect(ctx, id)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("inspecting container %s: %w", id, err)
+	}
+	return &ContainerInfo{
+		ID:     info.ID,
+		Name:   strings.TrimPrefix(info.Name, "/"),
+		Image:  info.Config.Image,
+		State:  info.State.Status,
+		Labels: info.Config.Labels,
+	}, nil
+}

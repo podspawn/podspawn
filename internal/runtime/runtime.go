@@ -51,4 +51,14 @@ type Runtime interface {
 	ImageExists(ctx context.Context, ref string) (bool, error)
 	CreateNetwork(ctx context.Context, name string) (string, error)
 	RemoveNetwork(ctx context.Context, id string) error
+	ListContainers(ctx context.Context, labelFilter map[string]string) ([]ContainerInfo, error)
+	InspectContainer(ctx context.Context, id string) (*ContainerInfo, error)
+}
+
+type ContainerInfo struct {
+	ID     string
+	Name   string
+	Image  string
+	State  string // "running", "exited", etc.
+	Labels map[string]string
 }
