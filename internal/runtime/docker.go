@@ -80,6 +80,27 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 			ReadOnly: m.ReadOnly,
 		})
 	}
+	if len(opts.CapDrop) > 0 {
+		hostCfg.CapDrop = opts.CapDrop
+	}
+	if len(opts.CapAdd) > 0 {
+		hostCfg.CapAdd = opts.CapAdd
+	}
+	if len(opts.SecurityOpt) > 0 {
+		hostCfg.SecurityOpt = opts.SecurityOpt
+	}
+	if opts.PidsLimit > 0 {
+		hostCfg.PidsLimit = &opts.PidsLimit
+	}
+	if opts.ReadonlyRootfs {
+		hostCfg.ReadonlyRootfs = true
+	}
+	if len(opts.Tmpfs) > 0 {
+		hostCfg.Tmpfs = opts.Tmpfs
+	}
+	if opts.RuntimeName != "" {
+		hostCfg.Runtime = opts.RuntimeName
+	}
 
 	var networkCfg *network.NetworkingConfig
 	if opts.NetworkID != "" {
