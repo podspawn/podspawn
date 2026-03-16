@@ -38,6 +38,11 @@ func resolveTarget(host, port string) (string, error) {
 		return net.JoinHostPort(host, port), nil
 	}
 
+	// localhost.pod resolves without config (single-server setup)
+	if host == "localhost.pod" {
+		return net.JoinHostPort("127.0.0.1", port), nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)

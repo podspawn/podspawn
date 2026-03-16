@@ -143,3 +143,26 @@ func TestResolveTargetPodNoConfig(t *testing.T) {
 		t.Fatal("expected error for .pod without config")
 	}
 }
+
+func TestResolveTargetLocalhostPod(t *testing.T) {
+	// localhost.pod resolves without any config file
+	t.Setenv("HOME", t.TempDir())
+	got, err := resolveTarget("localhost.pod", "22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "127.0.0.1:22" {
+		t.Errorf("resolved = %q, want 127.0.0.1:22", got)
+	}
+}
+
+func TestResolveTargetLocalhostPodCustomPort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	got, err := resolveTarget("localhost.pod", "2222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "127.0.0.1:2222" {
+		t.Errorf("resolved = %q, want 127.0.0.1:2222", got)
+	}
+}
