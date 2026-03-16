@@ -20,9 +20,13 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
 
 archives:
   - id: default
@@ -58,7 +62,7 @@ nfpms:
   - id: podspawn
     package_name: podspawn
     vendor: podspawn
-    homepage: https://github.com/o1x3/podspawn
+    homepage: https://github.com/podspawn/podspawn
     maintainer: podspawn <noreply@podspawn.dev>
     description: Ephemeral SSH dev containers via native sshd
     license: AGPL-3.0
@@ -78,10 +82,11 @@ brews:
   - ids:
       - default
     repository:
-      owner: o1x3
+      owner: podspawn
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/o1x3/podspawn
+    homepage: https://github.com/podspawn/podspawn
     description: Ephemeral SSH dev containers via native sshd
     license: AGPL-3.0
     install: |
@@ -91,7 +96,7 @@ brews:
 
 release:
   github:
-    owner: o1x3
+    owner: podspawn
     name: podspawn
   draft: false
   prerelease: auto
