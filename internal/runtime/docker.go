@@ -261,6 +261,15 @@ func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string) (string,
 		Labels: map[string]string{"managed-by": "podspawn"},
 	})
 	if err != nil {
+		// If network already exists (e.g., from a crash), reuse it
+		networks, listErr := d.cli.NetworkList(ctx, network.ListOptions{})
+		if listErr == nil {
+			for _, n := range networks {
+				if n.Name == name {
+					return n.ID, nil
+				}
+			}
+		}
 		return "", fmt.Errorf("creating network %s: %w", name, err)
 	}
 	return resp.ID, nil

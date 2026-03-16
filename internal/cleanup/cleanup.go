@@ -17,7 +17,11 @@ func DestroySession(ctx context.Context, rt runtime.Runtime, store state.Session
 
 	if sess.ServiceIDs != "" {
 		for _, id := range strings.Split(sess.ServiceIDs, ",") {
-			_ = rt.RemoveContainer(ctx, strings.TrimSpace(id))
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			_ = rt.RemoveContainer(ctx, id)
 		}
 	}
 	if sess.NetworkID != "" {
@@ -90,7 +94,11 @@ func ReconcileOrphans(ctx context.Context, rt runtime.Runtime, store state.Sessi
 		if tracked[c.Name] || tracked[c.ID] {
 			continue
 		}
-		slog.Info("removing orphaned container", "name", c.Name, "id", c.ID[:12])
+		shortID := c.ID
+		if len(shortID) > 12 {
+			shortID = shortID[:12]
+		}
+		slog.Info("removing orphaned container", "name", c.Name, "id", shortID)
 		if err := rt.RemoveContainer(ctx, c.ID); err != nil {
 			slog.Error("failed to remove orphan", "name", c.Name, "error", err)
 			continue
@@ -101,10 +109,11 @@ func ReconcileOrphans(ctx context.Context, rt runtime.Runtime, store state.Sessi
 }
 
 // RunOnce performs a single cleanup pass: expire grace periods, enforce
-// lifetimes, and reconcile orphans.
+// lifetimes, and reconcile orphans. Grace periods are checked first so
+// that max-lifetime enforcement doesn't double-destroy the same session.
 func RunOnce(ctx context.Context, rt runtime.Runtime, store state.SessionStore) {
 	graced := ExpireGracePeriods(ctx, rt, store)
-	expired := EnforceMaxLifetimes(ctx, rt, store)
+	expired := EnforceMaxLifetimes(ctx, rt, store) // safe: grace sessions are already deleted
 	orphans := ReconcileOrphans(ctx, rt, store)
 	if graced+expired+orphans > 0 {
 		slog.Info("cleanup pass complete", "grace_expired", graced, "lifetime_expired", expired, "orphans_removed", orphans)

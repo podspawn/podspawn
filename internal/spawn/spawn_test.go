@@ -3,6 +3,7 @@ package spawn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -923,13 +924,16 @@ func TestAgentForwardingCreatesSymlinkAndPassesEnv(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0] != "SSH_AUTH_SOCK="+containerAgentSock {
-		t.Errorf("env = %q, want SSH_AUTH_SOCK=%s", env[0], containerAgentSock)
+	// Socket name includes PID to prevent concurrent session races
+	expectedSock := fmt.Sprintf("%s/agent-%d.sock", containerAgentDir, os.Getpid())
+	if env[0] != "SSH_AUTH_SOCK="+expectedSock {
+		t.Errorf("env = %q, want SSH_AUTH_SOCK=%s", env[0], expectedSock)
 	}
 
-	// Verify symlink was created
+	// Verify symlink was created with PID-based name
 	agentDir := sess.agentHostDir()
-	linkTarget, err := os.Readlink(filepath.Join(agentDir, "agent.sock"))
+	sockName := fmt.Sprintf("agent-%d.sock", os.Getpid())
+	linkTarget, err := os.Readlink(filepath.Join(agentDir, sockName))
 	if err != nil {
 		t.Fatalf("symlink not created: %v", err)
 	}
@@ -1003,7 +1007,7 @@ func TestAgentEnvPassedToExec(t *testing.T) {
 	execEnv := fake.ExecCalls[0].Opts.Env
 	found := false
 	for _, e := range execEnv {
-		if e == "SSH_AUTH_SOCK="+containerAgentSock {
+		if strings.HasPrefix(e, "SSH_AUTH_SOCK="+containerAgentDir+"/agent-") {
 			found = true
 		}
 	}

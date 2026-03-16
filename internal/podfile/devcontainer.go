@@ -155,7 +155,9 @@ func stripJSONComments(data []byte) []byte {
 				i++
 			}
 			if i+1 < len(data) {
-				i += 2
+				i += 2 // skip closing */
+			} else {
+				i = len(data) // unclosed block comment, skip to end
 			}
 			continue
 		}
