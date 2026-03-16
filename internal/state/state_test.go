@@ -342,6 +342,53 @@ func TestCompositeKeyIndependentSessions(t *testing.T) {
 	}
 }
 
+func TestListSessions(t *testing.T) {
+	store := openTestDB(t)
+	now := time.Now().UTC()
+
+	sessions := []*Session{
+		{
+			User: "charlie", Project: "web", ContainerID: "c3", ContainerName: "podspawn-charlie-web",
+			Image: "ubuntu:24.04", Status: "running", Connections: 1,
+			CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		},
+		{
+			User: "alice", Project: "api", ContainerID: "c1", ContainerName: "podspawn-alice-api",
+			Image: "ubuntu:24.04", Status: "running", Connections: 2,
+			CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		},
+		{
+			User: "alice", Project: "frontend", ContainerID: "c2", ContainerName: "podspawn-alice-frontend",
+			Image: "node:22", Status: "grace_period", Connections: 0,
+			CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		},
+	}
+	for _, sess := range sessions {
+		if err := store.CreateSession(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := store.ListSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(got))
+	}
+
+	// ListSessions orders by user, project
+	if got[0].User != "alice" || got[0].Project != "api" {
+		t.Errorf("first session = %s/%s, want alice/api", got[0].User, got[0].Project)
+	}
+	if got[1].User != "alice" || got[1].Project != "frontend" {
+		t.Errorf("second session = %s/%s, want alice/frontend", got[1].User, got[1].Project)
+	}
+	if got[2].User != "charlie" || got[2].Project != "web" {
+		t.Errorf("third session = %s/%s, want charlie/web", got[2].User, got[2].Project)
+	}
+}
+
 func TestNetworkAndServiceIDsRoundTrip(t *testing.T) {
 	store := openTestDB(t)
 

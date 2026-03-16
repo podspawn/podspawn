@@ -165,6 +165,155 @@ func TestRunOnce(t *testing.T) {
 	}
 }
 
+func TestDestroySessionWithEmptyServiceIDs(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	rt.Containers["podspawn-dev-solo"] = true
+	_ = store.CreateSession(&state.Session{
+		User:          "dev",
+		Project:       "solo",
+		ContainerID:   "podspawn-dev-solo",
+		ContainerName: "podspawn-dev-solo",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     time.Now(),
+		LastActivity:  time.Now(),
+		MaxLifetime:   time.Now().Add(8 * time.Hour),
+		ServiceIDs:    "",
+	})
+
+	sess, _ := store.GetSession("dev", "solo")
+	if err := DestroySession(ctx, rt, store, sess); err != nil {
+		t.Fatalf("DestroySession: %v", err)
+	}
+
+	if _, ok := rt.Containers["podspawn-dev-solo"]; ok {
+		t.Error("container not removed")
+	}
+	got, _ := store.GetSession("dev", "solo")
+	if got != nil {
+		t.Error("session not deleted from store")
+	}
+}
+
+func TestDestroySessionWithMalformedServiceIDs(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	rt.Containers["podspawn-dev-messy"] = true
+	rt.Containers["svc1"] = true
+	rt.Containers["svc2"] = true
+	_ = store.CreateSession(&state.Session{
+		User:          "dev",
+		Project:       "messy",
+		ContainerID:   "podspawn-dev-messy",
+		ContainerName: "podspawn-dev-messy",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     time.Now(),
+		LastActivity:  time.Now(),
+		MaxLifetime:   time.Now().Add(8 * time.Hour),
+		ServiceIDs:    "svc1,,svc2,",
+	})
+
+	sess, _ := store.GetSession("dev", "messy")
+	if err := DestroySession(ctx, rt, store, sess); err != nil {
+		t.Fatalf("DestroySession: %v", err)
+	}
+
+	if _, ok := rt.Containers["svc1"]; ok {
+		t.Error("svc1 not removed")
+	}
+	if _, ok := rt.Containers["svc2"]; ok {
+		t.Error("svc2 not removed")
+	}
+	got, _ := store.GetSession("dev", "messy")
+	if got != nil {
+		t.Error("session not deleted from store")
+	}
+}
+
+func TestExpireGracePeriodsNoExpired(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	rt.Containers["podspawn-dev-healthy"] = true
+	_ = store.CreateSession(&state.Session{
+		User:          "dev",
+		Project:       "healthy",
+		ContainerID:   "podspawn-dev-healthy",
+		ContainerName: "podspawn-dev-healthy",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   2,
+		CreatedAt:     time.Now(),
+		LastActivity:  time.Now(),
+		MaxLifetime:   time.Now().Add(8 * time.Hour),
+	})
+
+	count := ExpireGracePeriods(ctx, rt, store)
+	if count != 0 {
+		t.Fatalf("expected 0 expired, got %d", count)
+	}
+	if _, ok := rt.Containers["podspawn-dev-healthy"]; !ok {
+		t.Error("running container should not be removed")
+	}
+}
+
+func TestReconcileOrphansNoOrphans(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	rt.Containers["podspawn-dev-tracked"] = true
+	_ = store.CreateSession(&state.Session{
+		User:          "dev",
+		Project:       "tracked",
+		ContainerID:   "podspawn-dev-tracked",
+		ContainerName: "podspawn-dev-tracked",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     time.Now(),
+		LastActivity:  time.Now(),
+		MaxLifetime:   time.Now().Add(8 * time.Hour),
+	})
+
+	count := ReconcileOrphans(ctx, rt, store)
+	if count != 0 {
+		t.Fatalf("expected 0 orphans, got %d", count)
+	}
+}
+
+func TestRunDaemonCancellation(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunDaemon(ctx, rt, store, 50*time.Millisecond)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunDaemon returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunDaemon did not exit after context cancellation")
+	}
+}
+
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
 		d    time.Duration

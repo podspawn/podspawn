@@ -1191,3 +1191,282 @@ func TestApplyUserOverridesWithoutPodfile(t *testing.T) {
 		t.Errorf("Memory = %d, want 8GiB", sess.Memory)
 	}
 }
+
+func TestDisconnectLockAcquisitionFailure(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy"] = true
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		ContainerID:   "abc123",
+		ContainerName: "podspawn-deploy",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+	})
+
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Store:       store,
+		LockDir:     "/dev/null/nope",
+		GracePeriod: 60 * time.Second,
+		Mode:        "grace-period",
+	}
+
+	// Should not panic; lock failure means early return, container survives
+	sess.Disconnect(context.Background())
+
+	got, _ := store.GetSession("deploy", "")
+	if got == nil {
+		t.Fatal("session should still exist when lock acquisition fails")
+	}
+	if got.Connections != 1 {
+		t.Errorf("connections = %d, want 1 (unchanged)", got.Connections)
+	}
+	if _, ok := fake.Containers["podspawn-deploy"]; !ok {
+		t.Error("container should survive lock failure")
+	}
+}
+
+func TestDisconnectUpdateConnectionsError(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy"] = true
+	store := state.NewFakeStore()
+
+	// No session in store for "deploy", so UpdateConnections will fail
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		Mode:        "destroy-on-disconnect",
+	}
+
+	// UpdateConnections returns error for missing session; should not panic
+	sess.Disconnect(context.Background())
+
+	// Container should be untouched since we bailed out on the error path
+	if _, ok := fake.Containers["podspawn-deploy"]; !ok {
+		t.Error("container should survive when UpdateConnections fails")
+	}
+}
+
+func TestDisconnectSessionNotFoundForCleanup(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy"] = true
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		ContainerID:   "abc123",
+		ContainerName: "podspawn-deploy",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+	})
+
+	sess := &Session{
+		Username: "deploy",
+		Runtime:  fake,
+		Store:    store,
+		LockDir:  t.TempDir(),
+		Mode:     "destroy-on-disconnect",
+	}
+
+	// Delete the session before Disconnect tries to look it up for cleanup
+	_ = store.DeleteSession("deploy", "")
+
+	// Should not panic; GetSession returns nil, early return with warning
+	sess.Disconnect(context.Background())
+
+	// Container should still exist because we couldn't find the session to clean up
+	if _, ok := fake.Containers["podspawn-deploy"]; !ok {
+		t.Error("container should survive when session is missing at cleanup time")
+	}
+}
+
+func TestRunAndCleanup(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
+
+	exitCode := sess.RunAndCleanup(context.Background())
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", exitCode)
+	}
+
+	// Session should still exist (grace period mode), connections decremented to 0
+	got, _ := store.GetSession("deploy", "")
+	if got == nil {
+		t.Fatal("session should exist in grace period mode after RunAndCleanup")
+	}
+	if got.Connections != 0 {
+		t.Errorf("connections = %d, want 0 after disconnect", got.Connections)
+	}
+	if got.Status != "grace_period" {
+		t.Errorf("status = %q, want grace_period", got.Status)
+	}
+}
+
+// errorOnExistsRuntime wraps FakeRuntime to return an error from ContainerExists.
+type errorOnExistsRuntime struct {
+	*runtime.FakeRuntime
+	existsErr error
+}
+
+func (r *errorOnExistsRuntime) ContainerExists(_ context.Context, _ string) (bool, error) {
+	return false, r.existsErr
+}
+
+func TestContainerExistsErrorOnReattach(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		ContainerID:   "abc123",
+		ContainerName: "podspawn-deploy",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+	})
+
+	errRT := &errorOnExistsRuntime{
+		FakeRuntime: fake,
+		existsErr:   errors.New("docker daemon unreachable"),
+	}
+
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     errRT,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Session should NOT be deleted; we assume alive on ContainerExists error
+	got, _ := store.GetSession("deploy", "")
+	if got == nil {
+		t.Fatal("session should not be deleted when ContainerExists returns error")
+	}
+	if got.Connections != 2 {
+		t.Errorf("connections = %d, want 2 (reattach should proceed)", got.Connections)
+	}
+
+	// Should not have created a new container
+	if len(fake.CreateCalls) != 0 {
+		t.Errorf("expected 0 create calls (assumed alive), got %d", len(fake.CreateCalls))
+	}
+}
+
+func TestPerUserNetworkCleanupOnDisconnect(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy"] = true
+	fake.Networks["net-deploy-1"] = true
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		ContainerID:   "abc123",
+		ContainerName: "podspawn-deploy",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+		NetworkID:     "net-deploy-1",
+	})
+
+	sess := &Session{
+		Username: "deploy",
+		Runtime:  fake,
+		Store:    store,
+		LockDir:  t.TempDir(),
+		Mode:     "destroy-on-disconnect",
+	}
+
+	sess.Disconnect(context.Background())
+
+	if _, ok := fake.Containers["podspawn-deploy"]; ok {
+		t.Error("container should be removed")
+	}
+	if _, ok := fake.Networks["net-deploy-1"]; ok {
+		t.Error("network should be removed on destroy-on-disconnect")
+	}
+	if len(fake.RemoveNetworkCalls) != 1 || fake.RemoveNetworkCalls[0] != "net-deploy-1" {
+		t.Errorf("RemoveNetwork calls = %v, want [net-deploy-1]", fake.RemoveNetworkCalls)
+	}
+}
+
+func TestSecurityOptsDefaultsEmpty(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "deploy")
+	// Security is zero-value config.SecurityConfig{}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := fake.CreateCalls[0]
+	if len(opts.CapDrop) != 0 {
+		t.Errorf("CapDrop = %v, want empty", opts.CapDrop)
+	}
+	if len(opts.CapAdd) != 0 {
+		t.Errorf("CapAdd = %v, want empty", opts.CapAdd)
+	}
+	if len(opts.SecurityOpt) != 0 {
+		t.Errorf("SecurityOpt = %v, want empty", opts.SecurityOpt)
+	}
+	if opts.PidsLimit != 0 {
+		t.Errorf("PidsLimit = %d, want 0", opts.PidsLimit)
+	}
+	if opts.ReadonlyRootfs {
+		t.Error("ReadonlyRootfs should be false by default")
+	}
+	if len(opts.Tmpfs) != 0 {
+		t.Errorf("Tmpfs = %v, want empty", opts.Tmpfs)
+	}
+	if opts.RuntimeName != "" {
+		t.Errorf("RuntimeName = %q, want empty", opts.RuntimeName)
+	}
+}
