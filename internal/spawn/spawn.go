@@ -468,21 +468,38 @@ func (s *Session) applyUserOverrides() {
 	}
 }
 
+// userNetworkName returns the per-user network name for isolation.
+func (s *Session) userNetworkName() string {
+	if s.ProjectName != "" {
+		return fmt.Sprintf("podspawn-%s-%s-net", s.Username, s.ProjectName)
+	}
+	return fmt.Sprintf("podspawn-%s-net", s.Username)
+}
+
 // resolveProject loads the Podfile (if a project is configured), resolves the
 // cached image, and creates companion services. Returns the image to use,
 // env vars, network ID, and service container IDs.
 func (s *Session) resolveProject(ctx context.Context) (image string, env []string, networkID string, serviceIDs []string, err error) {
+	// Always create a per-user network for isolation
+	netName := s.userNetworkName()
+	networkID, err = s.Runtime.CreateNetwork(ctx, netName)
+	if err != nil {
+		return "", nil, "", nil, fmt.Errorf("creating user network: %w", err)
+	}
+
 	if s.Project == nil {
 		s.applyUserOverrides()
-		return s.Image, nil, "", nil, nil
+		return s.Image, nil, networkID, nil, nil
 	}
 
 	raw, err := podfile.FindAndRead(s.Project.LocalPath)
 	if err != nil {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
 		return "", nil, "", nil, fmt.Errorf("loading podfile for %s: %w", s.ProjectName, err)
 	}
 	pf, err := podfile.Parse(bytes.NewReader(raw))
 	if err != nil {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
 		return "", nil, "", nil, fmt.Errorf("parsing podfile for %s: %w", s.ProjectName, err)
 	}
 	s.pf = pf
@@ -490,9 +507,11 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 	tag := podfile.ComputeTag(s.ProjectName, raw)
 	exists, err := s.Runtime.ImageExists(ctx, tag)
 	if err != nil {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
 		return "", nil, "", nil, fmt.Errorf("checking image %s: %w", tag, err)
 	}
 	if !exists {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
 		return "", nil, "", nil, fmt.Errorf("image %s not built; run: podspawn update-project %s", tag, s.ProjectName)
 	}
 	image = tag
@@ -519,11 +538,6 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 	sort.Strings(env)
 
 	if len(pf.Services) > 0 {
-		netName := fmt.Sprintf("podspawn-%s-%s-net", s.Username, s.ProjectName)
-		networkID, err = s.Runtime.CreateNetwork(ctx, netName)
-		if err != nil {
-			return "", nil, "", nil, fmt.Errorf("creating network: %w", err)
-		}
 		serviceIDs, err = podfile.StartServices(ctx, s.Runtime, pf.Services, networkID, s.containerName())
 		if err != nil {
 			_ = s.Runtime.RemoveNetwork(ctx, networkID)
