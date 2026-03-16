@@ -40,7 +40,16 @@ Containers launch with these defaults (configurable in `/etc/podspawn/config.yam
 - `no-new-privileges: true`
 - `pids-limit: 256`
 - Per-user bridge network isolation
-- Optional gVisor runtime (`runtime: runsc`)
+- Max 3 containers per user (configurable via `resources.max_per_user`)
+
+Optional hardening (not enabled by default):
+
+- `readonly_rootfs: true` with tmpfs mounts for /tmp and /home
+- gVisor runtime (`runtime: runsc`) for kernel-level isolation
+
+### Emergency Access
+
+`podspawn server-setup` creates an emergency key file at `/etc/podspawn/emergency.keys`. This provides break-glass root access if the podspawn binary malfunctions. Keep this file secure and audit its contents regularly.
 
 ### Known Limitations
 
