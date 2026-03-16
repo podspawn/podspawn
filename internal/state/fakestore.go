@@ -161,6 +161,9 @@ func (f *FakeStore) ListSessionsByUser(user string) ([]*Session, error) {
 			out = append(out, &cp)
 		}
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Project < out[j].Project
+	})
 	return out, nil
 }
 
