@@ -342,3 +342,90 @@ func TestFormatDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestDestroySessionNetworkCleanup(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	rt.Containers["podspawn-dev-api"] = true
+	rt.Networks["net-api-1"] = true
+	_ = store.CreateSession(&state.Session{
+		User:          "dev",
+		Project:       "api",
+		ContainerID:   "podspawn-dev-api",
+		ContainerName: "podspawn-dev-api",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     time.Now(),
+		LastActivity:  time.Now(),
+		MaxLifetime:   time.Now().Add(8 * time.Hour),
+		NetworkID:     "net-api-1",
+	})
+
+	sess, _ := store.GetSession("dev", "api")
+	if err := DestroySession(ctx, rt, store, sess); err != nil {
+		t.Fatalf("DestroySession: %v", err)
+	}
+
+	if _, ok := rt.Containers["podspawn-dev-api"]; ok {
+		t.Error("container not removed")
+	}
+	if _, ok := rt.Networks["net-api-1"]; ok {
+		t.Error("network should be removed when session has a NetworkID")
+	}
+	if len(rt.RemoveNetworkCalls) != 1 || rt.RemoveNetworkCalls[0] != "net-api-1" {
+		t.Errorf("RemoveNetwork calls = %v, want [net-api-1]", rt.RemoveNetworkCalls)
+	}
+	got, _ := store.GetSession("dev", "api")
+	if got != nil {
+		t.Error("session not deleted from store")
+	}
+}
+
+func TestReconcileOrphansServiceTracking(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	ctx := context.Background()
+
+	// Main container tracked by ContainerName
+	rt.Containers["podspawn-dev-api"] = true
+	// Service containers tracked via ServiceIDs, not ContainerName
+	rt.Containers["svc-postgres-1"] = true
+	rt.Containers["svc-redis-1"] = true
+	_ = store.CreateSession(&state.Session{
+		User:          "dev",
+		Project:       "api",
+		ContainerID:   "podspawn-dev-api",
+		ContainerName: "podspawn-dev-api",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     time.Now(),
+		LastActivity:  time.Now(),
+		MaxLifetime:   time.Now().Add(8 * time.Hour),
+		ServiceIDs:    "svc-postgres-1,svc-redis-1",
+	})
+
+	// Actual orphan: not tracked anywhere
+	rt.Containers["podspawn-abandoned"] = true
+
+	count := ReconcileOrphans(ctx, rt, store)
+	if count != 1 {
+		t.Fatalf("expected 1 orphan removed, got %d", count)
+	}
+
+	if _, ok := rt.Containers["podspawn-abandoned"]; ok {
+		t.Error("orphan container should be removed")
+	}
+	if _, ok := rt.Containers["podspawn-dev-api"]; !ok {
+		t.Error("main container should not be removed")
+	}
+	if _, ok := rt.Containers["svc-postgres-1"]; !ok {
+		t.Error("service container tracked via ServiceIDs should not be removed")
+	}
+	if _, ok := rt.Containers["svc-redis-1"]; !ok {
+		t.Error("service container tracked via ServiceIDs should not be removed")
+	}
+}

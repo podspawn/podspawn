@@ -97,6 +97,37 @@ func TestCheckDiskSpacePass(t *testing.T) {
 	}
 }
 
+func TestCheckAuthKeysCommandCaseInsensitive(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "sshd_config")
+	// Lowercase "authorizedkeyscommand" should still match
+	content := "Port 22\nauthorizedkeyscommand /usr/local/bin/podspawn auth-keys %u\nauthorizedkeyscommanduser root\n"
+	_ = os.WriteFile(f, []byte(content), 0644)
+
+	cfg := CheckConfig{SSHDConfigPath: f}
+	r := cfg.checkAuthKeysCommand(context.Background())
+	if r.Status != Pass {
+		t.Errorf("expected Pass for lowercase AuthorizedKeysCommand, got %v: %s", r.Status, r.Detail)
+	}
+}
+
+func TestCheckStateDirNotWritable(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "readonly")
+	_ = os.MkdirAll(dir, 0555)
+
+	cfg := CheckConfig{StateDir: dir}
+	r := cfg.checkStateDir(context.Background())
+	// On macOS root can write to 0555 dirs, so we allow Fail or Pass
+	// depending on whether we're running as root. The point is it doesn't panic.
+	if r.Status == Warn {
+		t.Errorf("expected Pass or Fail for read-only dir, got Warn: %s", r.Detail)
+	}
+
+	// If not root, we expect Fail
+	if os.Getuid() != 0 && r.Status != Fail {
+		t.Errorf("expected Fail for non-root user writing to 0555 dir, got %v: %s", r.Status, r.Detail)
+	}
+}
+
 func TestRunAllOutput(t *testing.T) {
 	dir := t.TempDir()
 	cfg := CheckConfig{
