@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 # podspawn interactive setup
 # curl -sSf https://podspawn.dev/up | bash
@@ -7,13 +7,17 @@ set -euo pipefail
 REPO="podspawn/podspawn"
 INSTALL_DIR="/usr/local/bin"
 
-# Colors
-B='\033[1m'
-D='\033[2m'
-G='\033[32m'
-Y='\033[33m'
-C='\033[36m'
-R='\033[0m'
+# Colors (disabled if not a terminal)
+if [ -t 1 ] 2>/dev/null || [ -e /dev/tty ]; then
+    B='\033[1m'
+    D='\033[2m'
+    G='\033[32m'
+    Y='\033[33m'
+    C='\033[36m'
+    R='\033[0m'
+else
+    B='' D='' G='' Y='' C='' R=''
+fi
 
 info()  { printf "  ${C}::${R} %s\n" "$1"; }
 ok()    { printf "  ${G}ok${R} %s\n" "$1"; }
@@ -22,7 +26,14 @@ fail()  { printf "  ${Y}FAIL${R} %s\n" "$1"; }
 step()  { printf "\n  ${B}[%s]${R} %s\n" "$1" "$2"; }
 
 # Read from terminal even when piped through curl
+HAS_TTY=0
+[ -e /dev/tty ] && HAS_TTY=1
+
 ask() {
+    if [ "$HAS_TTY" = "0" ]; then
+        echo ""
+        return
+    fi
     printf "  %s " "$1" >/dev/tty
     read -r REPLY </dev/tty
     echo "$REPLY"

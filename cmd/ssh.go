@@ -25,7 +25,7 @@ var sshCmd = &cobra.Command{
 
 		// Parse user@host
 		parts := strings.SplitN(target, "@", 2)
-		if len(parts) != 2 {
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return fmt.Errorf("expected user@host, got %q", target)
 		}
 		user, host := parts[0], parts[1]
