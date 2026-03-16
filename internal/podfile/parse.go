@@ -45,7 +45,8 @@ func ParseFile(path string) (*Podfile, error) {
 }
 
 // FindAndRead searches for a Podfile in a project directory and returns
-// the raw bytes. Checks .podspawn/podfile.yaml first, then podfile.yaml.
+// the raw bytes. Checks .podspawn/podfile.yaml first, then podfile.yaml,
+// then falls back to devcontainer.json (converted to podfile YAML).
 func FindAndRead(projectDir string) ([]byte, error) {
 	candidates := []string{
 		filepath.Join(projectDir, ".podspawn", "podfile.yaml"),
@@ -60,7 +61,23 @@ func FindAndRead(projectDir string) ([]byte, error) {
 			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}
 	}
-	return nil, fmt.Errorf("no podfile.yaml found in %s", projectDir)
+
+	// Fallback: try devcontainer.json
+	dcPath, err := FindDevContainer(projectDir)
+	if err == nil {
+		dc, parseErr := ParseDevContainer(dcPath)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing %s: %w", dcPath, parseErr)
+		}
+		pf := dc.ToPodfile()
+		data, marshalErr := yaml.Marshal(pf)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("converting devcontainer to podfile: %w", marshalErr)
+		}
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("no podfile.yaml or devcontainer.json found in %s", projectDir)
 }
 
 func (pf *Podfile) validate() error {
