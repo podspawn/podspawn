@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/doctor"
@@ -18,7 +19,7 @@ var doctorCmd = &cobra.Command{
 		checkCfg := doctor.CheckConfig{
 			SSHDConfigPath: "/etc/ssh/sshd_config",
 			KeyDir:         cfg.Auth.KeyDir,
-			StateDir:       cfg.State.DBPath[:len(cfg.State.DBPath)-len("/state.db")], // strip filename
+			StateDir:       filepath.Dir(cfg.State.DBPath),
 			LockDir:        cfg.State.LockDir,
 			DefaultImage:   cfg.Defaults.Image,
 		}

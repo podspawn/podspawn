@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/config"
@@ -34,25 +36,46 @@ var serversCmd = &cobra.Command{
 			servers[host] = server
 		}
 
-		// localhost.pod is always available
 		servers["localhost.pod"] = "127.0.0.1"
 
-		if len(servers) == 0 {
-			fmt.Println("No servers configured.")
-			return nil
+		type probeResult struct {
+			Label   string
+			Host    string
+			Latency time.Duration
+			Err     error
 		}
 
-		for label, host := range servers {
-			addr := net.JoinHostPort(host, "22")
-			start := time.Now()
-			conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
-			latency := time.Since(start)
+		results := make([]probeResult, 0, len(servers))
+		var mu sync.Mutex
+		var wg sync.WaitGroup
 
-			if err != nil {
-				_, _ = fmt.Fprintf(os.Stdout, "  %-25s %s  unreachable\n", label, host)
+		for label, host := range servers {
+			wg.Add(1)
+			go func(label, host string) {
+				defer wg.Done()
+				addr := net.JoinHostPort(host, "22")
+				start := time.Now()
+				conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+				latency := time.Since(start)
+				if err == nil {
+					_ = conn.Close()
+				}
+				mu.Lock()
+				results = append(results, probeResult{label, host, latency, err})
+				mu.Unlock()
+			}(label, host)
+		}
+		wg.Wait()
+
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Label < results[j].Label
+		})
+
+		for _, r := range results {
+			if r.Err != nil {
+				_, _ = fmt.Fprintf(os.Stdout, "  %-25s %s  unreachable\n", r.Label, r.Host)
 			} else {
-				_ = conn.Close()
-				_, _ = fmt.Fprintf(os.Stdout, "  %-25s %s  ok (%dms)\n", label, host, latency.Milliseconds())
+				_, _ = fmt.Fprintf(os.Stdout, "  %-25s %s  ok (%dms)\n", r.Label, r.Host, r.Latency.Milliseconds())
 			}
 		}
 		return nil

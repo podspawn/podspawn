@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -21,21 +20,12 @@ var sshCmd = &cobra.Command{
 	Args:               cobra.MinimumNArgs(1),
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target := args[0]
-
-		// Parse user@host
-		parts := strings.SplitN(target, "@", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("expected user@host, got %q", target)
-		}
-		user, host := parts[0], parts[1]
-
-		// Append .pod if it looks like a project name (no dots, no IP)
-		if !strings.Contains(host, ".") && !strings.Contains(host, ":") {
-			host += ".pod"
+		user, host, err := parseUserHost(args[0])
+		if err != nil {
+			return err
 		}
 
-		sshTarget := user + "@" + host
+		sshTarget := user + "@" + appendPodSuffix(host)
 
 		sshArgs := []string{sshTarget}
 

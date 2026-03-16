@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/podspawn/podspawn/internal/audit"
+	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/lock"
 	"github.com/podspawn/podspawn/internal/podfile"
@@ -104,7 +105,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	}
 
 	if sess != nil {
-		if sess.Status == "grace_period" {
+		if sess.Status == state.StatusGracePeriod {
 			slog.Info("cancelling grace period", "user", s.Username)
 			if err := s.Store.CancelGracePeriod(s.Username, s.ProjectName); err != nil {
 				return "", false, err
@@ -119,7 +120,10 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	}
 
 	if s.MaxPerUser > 0 {
-		userSessions, _ := s.Store.ListSessionsByUser(s.Username)
+		userSessions, err := s.Store.ListSessionsByUser(s.Username)
+		if err != nil {
+			return "", false, fmt.Errorf("checking session count for %s: %w", s.Username, err)
+		}
 		if len(userSessions) >= s.MaxPerUser {
 			return "", false, fmt.Errorf("user %s has %d active sessions (max %d); stop one first with: podspawn stop %s@<project>",
 				s.Username, len(userSessions), s.MaxPerUser, s.Username)
@@ -174,7 +178,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		ContainerID:   id,
 		ContainerName: containerName,
 		Image:         image,
-		Status:        "running",
+		Status:        state.StatusRunning,
 		Connections:   1,
 		CreatedAt:     now,
 		LastActivity:  now,
@@ -380,8 +384,7 @@ func (s *Session) reconcileUser(ctx context.Context) {
 	}
 	if stale != nil {
 		slog.Info("reconcile: cleaning up stale session", "user", stale.User, "container", stale.ContainerName)
-		cleanupSessionResources(ctx, s.Runtime, stale)
-		_ = s.Store.DeleteSession(stale.User, stale.Project)
+		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, stale)
 	}
 
 	// Expired grace period for this user/project
@@ -389,10 +392,9 @@ func (s *Session) reconcileUser(ctx context.Context) {
 	if err != nil || sess == nil {
 		return
 	}
-	if sess.Status == "grace_period" && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now()) {
+	if sess.Status == state.StatusGracePeriod && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now()) {
 		slog.Info("reconcile: grace period expired", "user", sess.User, "container", sess.ContainerName)
-		cleanupSessionResources(ctx, s.Runtime, sess)
-		_ = s.Store.DeleteSession(sess.User, sess.Project)
+		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, sess)
 	}
 }
 
@@ -561,16 +563,6 @@ func (s *Session) cleanupServicesAndNetwork(ctx context.Context, serviceIDs []st
 	}
 }
 
-func cleanupSessionResources(ctx context.Context, rt runtime.Runtime, sess *state.Session) {
-	_ = rt.RemoveContainer(ctx, sess.ContainerName)
-	if sess.ServiceIDs != "" {
-		podfile.StopServices(ctx, rt, strings.Split(sess.ServiceIDs, ","))
-	}
-	if sess.NetworkID != "" {
-		_ = rt.RemoveNetwork(ctx, sess.NetworkID)
-	}
-}
-
 // Disconnect handles session teardown: decrements connection count,
 // starts grace period or destroys container.
 // Must be called with context that has enough timeout for cleanup.
@@ -611,8 +603,7 @@ func (s *Session) Disconnect(ctx context.Context) {
 			return
 		}
 		slog.Info("destroying container", "user", s.Username, "container", sess.ContainerName)
-		cleanupSessionResources(ctx, s.Runtime, sess)
-		_ = s.Store.DeleteSession(s.Username, s.ProjectName)
+		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, sess)
 		s.Audit.ContainerDestroy(s.Username, s.ProjectName, sess.ContainerName, "disconnect")
 		return
 	}

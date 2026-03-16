@@ -139,8 +139,10 @@ func downloadFile(url, dest string) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	if _, err = io.Copy(f, resp.Body); err != nil {
+		return err
+	}
+	return f.Sync()
 }
 
 func copyFile(src, dst string) error {
