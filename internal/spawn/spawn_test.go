@@ -959,7 +959,7 @@ func TestAgentForwardingNoopWithoutSocket(t *testing.T) {
 	}
 }
 
-func TestAgentMountIncludedInContainerCreation(t *testing.T) {
+func TestAgentMountSkippedWithoutSocket(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	sess := testSession(fake, "deploy")
 
@@ -971,21 +971,11 @@ func TestAgentMountIncludedInContainerCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(fake.CreateCalls) != 1 {
-		t.Fatalf("expected 1 create call, got %d", len(fake.CreateCalls))
-	}
 	opts := fake.CreateCalls[0]
-
-	// Should have agent mount even when SSH_AUTH_SOCK is empty
-	// (mount is created at container creation for future sessions)
-	foundAgentMount := false
 	for _, m := range opts.Mounts {
 		if m.Target == containerAgentDir {
-			foundAgentMount = true
+			t.Error("agent mount should not be included when SSH_AUTH_SOCK is empty")
 		}
-	}
-	if !foundAgentMount {
-		t.Error("agent mount directory should be included in container creation")
 	}
 }
 

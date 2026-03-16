@@ -323,8 +323,12 @@ func (s *Session) securityOpts() (capDrop, capAdd, secOpt []string, pidsLimit in
 }
 
 // agentMount returns the bind mount for SSH agent forwarding.
-// Creates the host-side directory if it doesn't exist.
+// Only creates the mount if SSH_AUTH_SOCK is set (no point mounting
+// an empty directory if agent forwarding isn't active).
 func (s *Session) agentMount() []runtime.Mount {
+	if os.Getenv("SSH_AUTH_SOCK") == "" {
+		return nil
+	}
 	hostDir := s.agentHostDir()
 	if err := os.MkdirAll(hostDir, 0700); err != nil {
 		slog.Warn("failed to create agent dir", "path", hostDir, "error", err)
