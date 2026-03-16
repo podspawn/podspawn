@@ -145,14 +145,27 @@ func (f *FakeRuntime) ListContainers(_ context.Context, labelFilter map[string]s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var result []ContainerInfo
-	for name := range f.Containers {
+	for name, running := range f.Containers {
+		labels := map[string]string{"managed-by": "podspawn"}
+		match := true
+		for k, v := range labelFilter {
+			if labels[k] != v {
+				match = false
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		state := "running"
+		if !running {
+			state = "exited"
+		}
 		result = append(result, ContainerInfo{
-			ID:    name,
-			Name:  name,
-			State: "running",
-			Labels: map[string]string{
-				"managed-by": "podspawn",
-			},
+			ID:     name,
+			Name:   name,
+			State:  state,
+			Labels: labels,
 		})
 	}
 	return result, nil
@@ -161,13 +174,18 @@ func (f *FakeRuntime) ListContainers(_ context.Context, labelFilter map[string]s
 func (f *FakeRuntime) InspectContainer(_ context.Context, id string) (*ContainerInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if _, ok := f.Containers[id]; !ok {
+	running, ok := f.Containers[id]
+	if !ok {
 		return nil, nil
+	}
+	state := "running"
+	if !running {
+		state = "exited"
 	}
 	return &ContainerInfo{
 		ID:    id,
 		Name:  id,
-		State: "running",
+		State: state,
 		Labels: map[string]string{
 			"managed-by": "podspawn",
 		},

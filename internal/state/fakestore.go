@@ -3,6 +3,7 @@ package state
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -141,6 +142,12 @@ func (f *FakeStore) ListSessions() ([]*Session, error) {
 		cp := *sess
 		out = append(out, &cp)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].User != out[j].User {
+			return out[i].User < out[j].User
+		}
+		return out[i].Project < out[j].Project
+	})
 	return out, nil
 }
 

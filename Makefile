@@ -3,7 +3,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 LDFLAGS := -ldflags "-X github.com/podspawn/podspawn/cmd.Version=$(VERSION) -X github.com/podspawn/podspawn/cmd.Commit=$(COMMIT)"
 
-.PHONY: build test test-integration test-sshd lint clean install hooks
+.PHONY: build test test-integration test-sshd test-sshd-all lint clean install hooks
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) .
@@ -16,6 +16,12 @@ test-integration:
 
 test-sshd:
 	go test -v -race -tags sshd ./test/sshd/ -timeout 300s
+
+test-sshd-all:
+	@for distro in ubuntu debian rocky alpine; do \
+		echo "=== Testing on $$distro ===" ; \
+		PODSPAWN_TEST_DISTRO=$$distro go test -v -race -tags sshd ./test/sshd/ -timeout 300s || exit 1 ; \
+	done
 
 lint:
 	go vet ./...
