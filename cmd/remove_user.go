@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/podspawn/podspawn/internal/cleanup"
+	"github.com/podspawn/podspawn/internal/lock"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 	"github.com/spf13/cobra"
@@ -33,6 +34,13 @@ var removeUserCmd = &cobra.Command{
 		}
 		defer func() { _ = store.Close() }()
 
+		// Hold the per-user lock to prevent new sessions during removal
+		unlock, lockErr := lock.Acquire(cfg.State.LockDir, username)
+		if lockErr != nil {
+			return fmt.Errorf("acquiring lock for %s: %w", username, lockErr)
+		}
+		defer unlock()
+
 		sessions, err := store.ListSessionsByUser(username)
 		if err != nil {
 			return fmt.Errorf("listing sessions for %s: %w", username, err)
@@ -51,11 +59,17 @@ var removeUserCmd = &cobra.Command{
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
+			var destroyFailed bool
 			for _, sess := range sessions {
 				slog.Info("destroying session", "user", username, "container", sess.ContainerName)
 				if err := cleanup.DestroySession(ctx, rt, store, sess); err != nil {
-					slog.Warn("failed to destroy session", "container", sess.ContainerName, "error", err)
+					slog.Error("failed to destroy session", "container", sess.ContainerName, "error", err)
+					destroyFailed = true
 				}
+			}
+
+			if destroyFailed {
+				return fmt.Errorf("some sessions failed to destroy for %s; key file kept, retry later", username)
 			}
 		}
 

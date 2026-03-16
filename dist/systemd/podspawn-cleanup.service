@@ -1,14 +1,8 @@
 [Unit]
-Description=Podspawn cleanup daemon
+Description=Podspawn cleanup pass (single run)
 Documentation=https://podspawn.dev/docs/cli/admin-commands
 After=docker.service
-Requires=docker.service
 
 [Service]
-Type=simple
-ExecStart=/usr/local/bin/podspawn cleanup --daemon --interval 60s
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+Type=oneshot
+ExecStart=/usr/local/bin/podspawn cleanup

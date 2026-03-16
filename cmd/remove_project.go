@@ -25,15 +25,17 @@ var removeProjectCmd = &cobra.Command{
 			return fmt.Errorf("project %q is not registered", name)
 		}
 
-		if proj.LocalPath != "" {
-			if err := os.RemoveAll(proj.LocalPath); err != nil {
-				return fmt.Errorf("removing project directory %s: %w", proj.LocalPath, err)
-			}
-		}
-
+		// Deregister first; if this fails, nothing destructive happened
 		delete(projects, name)
 		if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
 			return fmt.Errorf("saving projects: %w", err)
+		}
+
+		// Now safe to remove the local clone
+		if proj.LocalPath != "" {
+			if err := os.RemoveAll(proj.LocalPath); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not remove %s: %v\n", proj.LocalPath, err)
+			}
 		}
 
 		fmt.Fprintf(os.Stderr, "removed project %s\n", name)
