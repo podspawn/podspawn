@@ -33,12 +33,12 @@ var updateProjectCmd = &cobra.Command{
 		defer cancel()
 
 		if err := podfile.PullRepo(ctx, proj.LocalPath); err != nil {
-			return err
+			return fmt.Errorf("pulling %s: %w", name, err)
 		}
 
 		raw, err := podfile.FindAndRead(proj.LocalPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("reading podfile for %s: %w", name, err)
 		}
 
 		newHash := podfile.ComputeTag(name, raw)
@@ -49,24 +49,24 @@ var updateProjectCmd = &cobra.Command{
 
 		pf, err := podfile.Parse(bytes.NewReader(raw))
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing podfile for %s: %w", name, err)
 		}
 
 		rt, err := runtime.NewDockerRuntime()
 		if err != nil {
-			return err
+			return fmt.Errorf("connecting to docker: %w", err)
 		}
 
 		tag, err := podfile.BuildImageFromPodfile(ctx, rt, pf, raw, name)
 		if err != nil {
-			return err
+			return fmt.Errorf("building image for %s: %w", name, err)
 		}
 
 		proj.PodfileHash = newHash
 		proj.ImageTag = tag
 		projects[name] = proj
 		if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
-			return err
+			return fmt.Errorf("saving projects: %w", err)
 		}
 
 		fmt.Fprintf(os.Stderr, "project %s rebuilt, image: %s\n", name, tag)

@@ -36,31 +36,32 @@ var addProjectCmd = &cobra.Command{
 
 		localPath := filepath.Join("/var/lib/podspawn/projects", name)
 		if err := podfile.CloneRepo(ctx, repo, localPath, branch); err != nil {
-			return err
+			os.RemoveAll(localPath) //nolint:errcheck
+			return fmt.Errorf("cloning %s: %w", repo, err)
 		}
 
 		raw, err := podfile.FindAndRead(localPath)
 		if err != nil {
 			os.RemoveAll(localPath) //nolint:errcheck
-			return fmt.Errorf("no podfile found in %s: %w", repo, err)
+			return fmt.Errorf("no podfile found in %s: %w", localPath, err)
 		}
 
 		pf, err := podfile.Parse(bytes.NewReader(raw))
 		if err != nil {
 			os.RemoveAll(localPath) //nolint:errcheck
-			return err
+			return fmt.Errorf("parsing podfile for %s: %w", name, err)
 		}
 
 		rt, err := runtime.NewDockerRuntime()
 		if err != nil {
 			os.RemoveAll(localPath) //nolint:errcheck
-			return err
+			return fmt.Errorf("connecting to docker: %w", err)
 		}
 
 		tag, err := podfile.BuildImageFromPodfile(ctx, rt, pf, raw, name)
 		if err != nil {
 			os.RemoveAll(localPath) //nolint:errcheck
-			return err
+			return fmt.Errorf("building image for %s: %w", name, err)
 		}
 
 		projects[name] = config.ProjectConfig{
@@ -70,7 +71,7 @@ var addProjectCmd = &cobra.Command{
 			ImageTag:    tag,
 		}
 		if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
-			return err
+			return fmt.Errorf("saving projects: %w", err)
 		}
 
 		fmt.Fprintf(os.Stderr, "project %s registered, image: %s\n", name, tag)
