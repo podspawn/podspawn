@@ -8,7 +8,7 @@ Ephemeral dev containers over SSH. No daemon, no custom server -- just your exis
 
 Every tool in this space (ContainerSSH, Coder, DevPod) builds its own SSH server. That's thousands of lines of protocol code reimplementing what OpenSSH already does.
 
-podspawn doesn't do that. It's a single binary that hooks into your existing sshd via `AuthorizedKeysCommand`. Two lines in sshd_config, and you have ephemeral containers. Because sshd handles the protocol, every SSH feature works out of the box: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway.
+podspawn doesn't do that. It's a **single binary** that works as both server and client. On the server, it hooks into your existing sshd via `AuthorizedKeysCommand`. On the client, it provides `.pod` namespace routing. Same binary, same install, different commands. Because sshd handles the protocol, every SSH feature works out of the box: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway.
 
 ## How it works
 
