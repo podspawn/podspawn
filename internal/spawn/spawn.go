@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/audit"
@@ -370,28 +368,7 @@ func (s *Session) prepareAgentForwarding() []string {
 	return []string{"SSH_AUTH_SOCK=" + containerSock}
 }
 
-func handleResize(ctx context.Context, rt runtime.Runtime, execID string) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGWINCH)
-	defer signal.Stop(sigCh)
-
-	if w, h, err := term.GetSize(int(os.Stdin.Fd())); err == nil {
-		_ = rt.ResizeExec(ctx, execID, uint(h), uint(w))
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-sigCh:
-			w, h, err := term.GetSize(int(os.Stdin.Fd()))
-			if err != nil {
-				continue
-			}
-			_ = rt.ResizeExec(ctx, execID, uint(h), uint(w))
-		}
-	}
-}
+// handleResize is in resize_unix.go (uses SIGWINCH, not available on Windows)
 
 // reconcileUser cleans up stale state for the current user only.
 func (s *Session) reconcileUser(ctx context.Context) {
