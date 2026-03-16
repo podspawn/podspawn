@@ -18,6 +18,7 @@ var configOptionalCommands = map[string]bool{
 	"setup": true, "server-setup": true, "version": true,
 	"list": true, "stop": true, "cleanup": true, "status": true,
 	"list-users": true, "remove-user": true, "remove-project": true,
+	"doctor": true,
 }
 
 var rootCmd = &cobra.Command{
