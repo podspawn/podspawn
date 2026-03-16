@@ -31,6 +31,7 @@ type ExecOpts struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	Env    []string // per-exec environment variables
 
 	// ExecIDCallback is called with the exec ID before I/O piping
 	// starts. Spawn uses this to set up terminal resize handling
