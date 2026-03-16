@@ -48,6 +48,28 @@ else
     wget -q "$URL" -O "$TMPDIR/podspawn.tar.gz"
 fi
 
+# Verify checksum
+CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+if command -v curl >/dev/null 2>&1; then
+    curl -sSfL "$CHECKSUM_URL" -o "$TMPDIR/checksums.txt"
+else
+    wget -q "$CHECKSUM_URL" -O "$TMPDIR/checksums.txt"
+fi
+
+EXPECTED=$(grep "$FILENAME" "$TMPDIR/checksums.txt" | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+    echo "Warning: checksum not found for $FILENAME, skipping verification" >&2
+else
+    ACTUAL=$(shasum -a 256 "$TMPDIR/podspawn.tar.gz" | awk '{print $1}')
+    if [ "$EXPECTED" != "$ACTUAL" ]; then
+        echo "Checksum verification failed!" >&2
+        echo "  Expected: $EXPECTED" >&2
+        echo "  Got:      $ACTUAL" >&2
+        exit 1
+    fi
+    echo "Checksum verified."
+fi
+
 tar -xzf "$TMPDIR/podspawn.tar.gz" -C "$TMPDIR"
 
 if [ -w "$INSTALL_DIR" ]; then

@@ -41,6 +41,7 @@ type Session struct {
 	MaxLifetime   time.Duration
 	Mode          string // "grace-period" | "destroy-on-disconnect"
 	Security      config.SecurityConfig
+	MaxPerUser    int           // 0 = unlimited
 	Audit         *audit.Logger // nil = no audit logging
 
 	pf *podfile.Podfile // cached after first parse
@@ -117,6 +118,14 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		slog.Info("reattaching to container", "name", sess.ContainerName, "connections", sess.Connections+1)
 		s.Audit.Connect(s.Username, s.ProjectName, sess.ContainerName, sess.Connections+1)
 		return sess.ContainerName, false, nil
+	}
+
+	if s.MaxPerUser > 0 {
+		userSessions, _ := s.Store.ListSessionsByUser(s.Username)
+		if len(userSessions) >= s.MaxPerUser {
+			return "", false, fmt.Errorf("user %s has %d active sessions (max %d); stop one first with: podspawn stop %s@<project>",
+				s.Username, len(userSessions), s.MaxPerUser, s.Username)
+		}
 	}
 
 	image, env, networkID, serviceIDs, err := s.resolveProject(ctx)

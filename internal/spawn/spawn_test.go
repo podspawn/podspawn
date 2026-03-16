@@ -1476,3 +1476,70 @@ func TestSecurityOptsDefaultsEmpty(t *testing.T) {
 		t.Errorf("RuntimeName = %q, want empty", opts.RuntimeName)
 	}
 }
+
+func TestMaxPerUserEnforcement(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	// Pre-create 2 sessions for this user (at the limit)
+	for _, proj := range []string{"api", "web"} {
+		fake.Containers["podspawn-deploy-"+proj] = true
+		_ = store.CreateSession(&state.Session{
+			User: "deploy", Project: proj, ContainerID: "podspawn-deploy-" + proj,
+			ContainerName: "podspawn-deploy-" + proj, Image: "ubuntu:24.04",
+			Status: "running", Connections: 1,
+			CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		})
+	}
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "third",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+		MaxPerUser:  2,
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error when max containers per user exceeded")
+	}
+	if !strings.Contains(err.Error(), "max 2") {
+		t.Errorf("error should mention limit, got: %s", err.Error())
+	}
+	if len(fake.CreateCalls) != 0 {
+		t.Error("should not create container when limit exceeded")
+	}
+}
+
+func TestMaxPerUserZeroMeansUnlimited(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+		MaxPerUser:  0, // unlimited
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatalf("MaxPerUser=0 should mean unlimited, got: %v", err)
+	}
+}
