@@ -32,11 +32,17 @@ func TestParseDevContainerBasic(t *testing.T) {
 	if dc.Image != "mcr.microsoft.com/devcontainers/go:1.22" {
 		t.Errorf("Image = %q", dc.Image)
 	}
-	if len(dc.ForwardPorts) != 2 || dc.ForwardPorts[0] != 8080 {
-		t.Errorf("ForwardPorts = %v", dc.ForwardPorts)
+	if len(dc.ForwardPorts) != 2 || dc.ForwardPorts[0] != 8080 || dc.ForwardPorts[1] != 3000 {
+		t.Errorf("ForwardPorts = %v, want [8080 3000]", dc.ForwardPorts)
 	}
-	if dc.ContainerEnv["GO111MODULE"] != "on" {
+	if dc.ContainerEnv["GO111MODULE"] != "on" || dc.ContainerEnv["EDITOR"] != "code" {
 		t.Errorf("ContainerEnv = %v", dc.ContainerEnv)
+	}
+	if cmd, ok := dc.PostCreateCommand.(string); !ok || cmd != "go mod download" {
+		t.Errorf("PostCreateCommand = %v, want 'go mod download'", dc.PostCreateCommand)
+	}
+	if cmd, ok := dc.PostStartCommand.(string); !ok || cmd != "echo ready" {
+		t.Errorf("PostStartCommand = %v, want 'echo ready'", dc.PostStartCommand)
 	}
 }
 
@@ -76,7 +82,7 @@ func TestDevContainerToPodfile(t *testing.T) {
 	if pf.Base != "node:22" {
 		t.Errorf("Base = %q, want node:22", pf.Base)
 	}
-	if len(pf.Ports.Expose) != 2 {
+	if len(pf.Ports.Expose) != 2 || pf.Ports.Expose[0] != 3000 || pf.Ports.Expose[1] != 5173 {
 		t.Errorf("Ports = %v, want [3000 5173]", pf.Ports.Expose)
 	}
 	if pf.Env["NODE_ENV"] != "development" {
@@ -238,15 +244,20 @@ func TestDevContainerEnvOverlapPrecedence(t *testing.T) {
 	}
 }
 
-func TestDevContainerRemoteUser(t *testing.T) {
+func TestDevContainerWithRemoteUserDoesNotCrash(t *testing.T) {
 	dc := &DevContainer{
 		Image:      "node:22",
 		RemoteUser: "vscode",
 	}
 	pf := dc.ToPodfile()
 
+	// RemoteUser is parsed but not mapped to Podfile (devcontainer-specific).
+	// Verify conversion succeeds without crashing.
 	if pf.Base != "node:22" {
 		t.Errorf("Base = %q, want node:22", pf.Base)
+	}
+	if pf.Shell != "/bin/bash" {
+		t.Errorf("Shell = %q, want /bin/bash (default)", pf.Shell)
 	}
 }
 

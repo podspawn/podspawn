@@ -111,11 +111,21 @@ func TestConcurrentLogging(t *testing.T) {
 		t.Fatalf("expected %d audit lines, got %d", workers, len(lines))
 	}
 
+	seenWorkers := make(map[string]bool)
 	for i, line := range lines {
 		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("line %d not valid JSON: %v", i, err)
 		}
+		if user, ok := entry["user"].(string); ok {
+			seenWorkers[user] = true
+		}
+		if entry["event"] != EventConnect {
+			t.Errorf("line %d: event = %v, want %s", i, entry["event"], EventConnect)
+		}
+	}
+	if len(seenWorkers) != workers {
+		t.Errorf("expected %d distinct workers, got %d", workers, len(seenWorkers))
 	}
 }
 

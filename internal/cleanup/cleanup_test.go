@@ -76,6 +76,10 @@ func TestExpireGracePeriods(t *testing.T) {
 	if _, ok := rt.Containers["podspawn-dev-web"]; ok {
 		t.Error("container not removed after grace expiry")
 	}
+	got, _ := store.GetSession("dev", "web")
+	if got != nil {
+		t.Error("session should be deleted after grace expiry")
+	}
 }
 
 func TestEnforceMaxLifetimes(t *testing.T) {
@@ -100,6 +104,13 @@ func TestEnforceMaxLifetimes(t *testing.T) {
 	count := EnforceMaxLifetimes(ctx, rt, store)
 	if count != 1 {
 		t.Fatalf("expected 1 expired lifetime, got %d", count)
+	}
+	if _, ok := rt.Containers["podspawn-ci-build"]; ok {
+		t.Error("container should be removed after lifetime expiry")
+	}
+	got, _ := store.GetSession("ci", "build")
+	if got != nil {
+		t.Error("session should be deleted after lifetime expiry")
 	}
 }
 

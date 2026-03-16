@@ -189,7 +189,9 @@ func TestContainerNaming(t *testing.T) {
 	sess := testSession(fake, "ci-runner")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
-	_, _ = sess.Run(context.Background())
+	if _, err := sess.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, ok := fake.Containers["podspawn-ci-runner"]; !ok {
 		t.Error("container should be named podspawn-ci-runner")
@@ -202,7 +204,9 @@ func TestContainerNamingWithProject(t *testing.T) {
 	sess.ProjectName = "backend"
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
-	_, _ = sess.Run(context.Background())
+	if _, err := sess.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, ok := fake.Containers["podspawn-deploy-backend"]; !ok {
 		t.Error("container should be named podspawn-deploy-backend")
@@ -843,7 +847,9 @@ func TestApplyUserOverridesEnvMerge(t *testing.T) {
 	envMap := make(map[string]string)
 	for _, e := range opts.Env {
 		parts := strings.SplitN(e, "=", 2)
-		envMap[parts[0]] = parts[1]
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
 	}
 
 	// User override should win over Podfile for EDITOR
