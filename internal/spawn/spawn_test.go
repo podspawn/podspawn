@@ -1057,6 +1057,86 @@ func TestSecurityOptsPassedToContainer(t *testing.T) {
 	}
 }
 
+func TestPerUserNetworkCreated(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have created a network
+	if len(fake.CreateNetworkCalls) != 1 {
+		t.Fatalf("expected 1 network creation, got %d", len(fake.CreateNetworkCalls))
+	}
+	if fake.CreateNetworkCalls[0] != "podspawn-deploy-net" {
+		t.Errorf("network name = %q, want podspawn-deploy-net", fake.CreateNetworkCalls[0])
+	}
+
+	// Container should be on that network
+	opts := fake.CreateCalls[0]
+	if opts.NetworkID == "" {
+		t.Error("container should be attached to a network")
+	}
+
+	// Session should record the network ID
+	got, _ := store.GetSession("deploy", "")
+	if got.NetworkID == "" {
+		t.Error("session should record network ID")
+	}
+}
+
+func TestPerUserNetworkWithProject(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	podfileContent := []byte("base: ubuntu:24.04\n")
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), podfileContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images[podfile.ComputeTag("backend", podfileContent)] = true
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Project: &config.ProjectConfig{
+			LocalPath: projectDir,
+		},
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if fake.CreateNetworkCalls[0] != "podspawn-deploy-backend-net" {
+		t.Errorf("network name = %q, want podspawn-deploy-backend-net", fake.CreateNetworkCalls[0])
+	}
+}
+
 func TestGVisorRuntimePassedToContainer(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	sess := testSession(fake, "deploy")
