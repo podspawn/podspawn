@@ -28,36 +28,15 @@ Real system users are unaffected. If podspawn doesn't recognize the username, it
 
 ## Quick start
 
-**Server (interactive, one line):**
 ```bash
 curl -sSf https://podspawn.dev/up | bash
 ```
 
-This installs the binary, configures sshd, walks you through SSH key setup, and runs diagnostics. Works on any Linux server with Docker.
+One command for everything. It auto-detects your environment:
 
-**Client (macOS/Linux):**
-```bash
-curl -sSf https://podspawn.dev/up | bash
-```
-
-Auto-detects client mode (no sshd), installs the binary, and configures `~/.ssh/config` for the `.pod` namespace.
-
-**Windows (manual):**
-
-Add to `~/.ssh/config`:
-```
-Host *.pod
-    ProxyCommand podspawn connect %r %h %p
-    UserKnownHostsFile /dev/null
-    StrictHostKeyChecking no
-```
-
-Or skip the client binary entirely and SSH straight to the server.
-
-**Self-update:**
-```bash
-podspawn update
-```
+- **Server** (sshd + Docker found): installs binary, configures sshd, walks you through SSH key setup, runs diagnostics, enables cleanup daemon
+- **Client** (no sshd): installs binary, configures `~/.ssh/config` for `.pod` namespace, asks for your server hostname
+- **Windows**: add 3 lines to `~/.ssh/config` manually (see [docs](https://podspawn.dev/docs/getting-started/installation))
 
 For the full walkthrough, see the [tutorial](https://podspawn.dev/docs/guides/tutorial).
 
