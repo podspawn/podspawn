@@ -1,70 +1,44 @@
 # podspawn
 
-Ephemeral dev containers over SSH. No daemon, no custom server — just your existing sshd.
+[![CI](https://github.com/podspawn/podspawn/actions/workflows/ci.yml/badge.svg)](https://github.com/podspawn/podspawn/actions/workflows/ci.yml)
+
+Ephemeral dev containers over SSH. No daemon, no custom server -- just your existing sshd.
 
 ## The idea
 
 Every tool in this space (ContainerSSH, Coder, DevPod) builds its own SSH server. That's thousands of lines of protocol code reimplementing what OpenSSH already does.
 
-podspawn doesn't do that. It's a single binary that hooks into your existing sshd via `AuthorizedKeysCommand`. Two lines in sshd_config, and you have ephemeral containers. The whole server side is ~3,000 lines of Go that pipe I/O between sshd and Docker.
-
-Because sshd handles the protocol, you get every SSH feature for free: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway. All of it works. podspawn just manages container lifecycle.
+podspawn doesn't do that. It's a single binary that hooks into your existing sshd via `AuthorizedKeysCommand`. Two lines in sshd_config, and you have ephemeral containers. Because sshd handles the protocol, every SSH feature works out of the box: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway.
 
 ## How it works
 
 ```
 ssh deploy@backend.pod
-  → ProxyCommand resolves backend.pod to your server
-  → sshd calls: podspawn auth-keys deploy
-  → podspawn returns keys with command="podspawn spawn --user deploy"
-  → sshd authenticates, forces the command
-  → podspawn creates container from project's Podfile
-  → companion services (postgres, redis) start on a shared network
-  → you're in a fully configured dev environment
-  → exit → grace period starts → reconnect within 60s → same container
+  -> ProxyCommand resolves backend.pod to your server
+  -> sshd calls: podspawn auth-keys deploy
+  -> podspawn returns keys with command="podspawn spawn --user deploy"
+  -> sshd authenticates, forces the command
+  -> container created from project's Podfile
+  -> companion services (postgres, redis) start on a shared network
+  -> you're in a fully configured dev environment
+  -> exit -> grace period -> reconnect within 60s -> same container
 ```
 
-Real system users are unaffected. If podspawn doesn't recognize the username, it returns nothing and sshd falls through to normal `~/.ssh/authorized_keys`.
-
-## The `.pod` namespace
-
-On the client side, a `ProxyCommand` entry in `~/.ssh/config` gives you magic hostnames:
-
-```
-ssh alice@work.pod
-```
-
-The `.pod` suffix isn't a real TLD. The ProxyCommand intercepts it before DNS is ever queried, looks up the actual server from `~/.podspawn/config.yaml`, and connects. Same pattern DevPod uses with `.devpod`.
-
-Set it up once:
-
-```bash
-podspawn setup    # appends *.pod config to ~/.ssh/config
-```
-
-Or skip the client binary entirely and SSH straight to the server. You lose the namespace magic but everything else works fine.
+Real system users are unaffected. If podspawn doesn't recognize the username, it returns nothing and sshd falls through to normal auth.
 
 ## Quick start
 
 ```bash
-# Build
-make build
-
-# Server setup (configures sshd, creates directories)
-sudo ./podspawn server-setup
-
-# Register a user
+# Server (30 seconds)
+curl -sSf https://podspawn.dev/install.sh | sh
+sudo podspawn server-setup
 sudo podspawn add-user deploy --github your-github-username
 
-# Register a project
-sudo podspawn add-project myapp --repo github.com/you/myapp
-
-# Client setup (adds *.pod to ~/.ssh/config)
-podspawn setup
-
-# Connect
-ssh deploy@myapp.pod
+# Client
+ssh deploy@yourserver.com
 ```
+
+For the full walkthrough, see the [tutorial](https://podspawn.dev/docs/guides/tutorial).
 
 ## Podfile
 
@@ -76,7 +50,6 @@ packages:
   - nodejs@22
   - python@3.12
   - ripgrep
-  - fzf
 shell: /bin/zsh
 services:
   - name: postgres
@@ -91,44 +64,59 @@ on_create: "make setup"
 on_start: "echo welcome back"
 ```
 
-Register a project:
+Images are pre-built at registration time, not during SSH. Companion services get their own containers on a shared Docker network with DNS discovery.
 
-```bash
-sudo podspawn add-project backend --repo github.com/company/backend
+Also supports `devcontainer.json` as a fallback.
+
+## Features
+
+- **Native sshd** -- two lines of config, every SSH feature works
+- **Podfile environments** -- packages, services, dotfiles, hooks
+- **devcontainer.json fallback** -- existing devcontainers work too
+- **Security by default** -- cap-drop ALL, no-new-privileges, PID limits, per-user network isolation
+- **gVisor support** -- `runtime: runsc` in config for kernel-level isolation
+- **Agent forwarding** -- SSH_AUTH_SOCK bind-mounted into containers
+- **Grace period lifecycle** -- survive network blips, configurable TTLs
+- **Session state** -- SQLite with connection counting, per-user file locking
+- **Cleanup daemon** -- expires grace periods, enforces lifetimes, reconciles orphans
+- **Audit logging** -- structured JSON-lines for every session event
+- **Prometheus metrics** -- `podspawn status --prometheus`
+- **Doctor command** -- 11 preflight checks for setup validation
+- **Multi-arch** -- linux/darwin, amd64/arm64, deb/rpm, Homebrew
+
+## Commands
+
 ```
-
-Images are pre-built at registration time, not during SSH connections. Companion services get their own containers on a shared Docker network with DNS discovery (your app reaches postgres at `postgres:5432`).
-
-## What works
-
-- Local SSH key auth (no network calls at auth time)
-- Interactive shell with full TTY support (resize, raw mode)
-- Command execution with exit code propagation
-- SFTP, scp, rsync
-- Grace period lifecycle (survive network blips)
-- Session state in SQLite with connection tracking
-- Podfile-based environment definitions with package version pinning
-- Companion services via Docker SDK (not docker compose)
-- Image caching via content-addressed SHA-256 tags
-- Client-side `.pod` namespace routing via ProxyCommand
-- Resource limits (CPU, memory) per-project and per-user
-- Dotfiles repo cloning and lifecycle hooks (on_create, on_start)
-- Per-user config overrides
-- `verify-image` compatibility checker
-
-## What's coming
-
-- devcontainer.json fallback
-- Agent forwarding (bind-mount SSH_AUTH_SOCK)
-- gVisor runtime option
-- Cleanup daemon for expired sessions
-- OIDC auth provider
+podspawn server-setup      # Configure sshd
+podspawn add-user          # Register SSH keys
+podspawn add-project       # Clone repo + build Podfile image
+podspawn connect           # ProxyCommand handler (.pod namespace)
+podspawn setup             # Configure client ~/.ssh/config
+podspawn list              # Active sessions
+podspawn stop              # Destroy a session
+podspawn cleanup           # Reconcile orphans + enforce TTLs
+podspawn status            # System metrics
+podspawn doctor            # Preflight checks
+podspawn list-users        # Registered users
+podspawn remove-user       # Remove user + sessions
+podspawn remove-project    # Deregister project
+podspawn verify-image      # Check image compatibility
+```
 
 ## Requirements
 
-- Go 1.23+
-- Docker (or OrbStack, Podman, anything with a Docker-compatible API)
-- OpenSSH 7.4+ (needs `AuthorizedKeysCommand` and the `restrict` keyword)
+- Docker (or OrbStack, Podman with Docker-compatible API)
+- OpenSSH 7.4+ (needs `AuthorizedKeysCommand` and `restrict` keyword)
+- Linux server for production (macOS for development via OrbStack)
+
+## Documentation
+
+Full docs at [podspawn.dev](https://podspawn.dev), including:
+- [Tutorial](https://podspawn.dev/docs/guides/tutorial) -- end-to-end walkthrough
+- [Troubleshooting](https://podspawn.dev/docs/guides/troubleshooting) -- common issues
+- [CLI Reference](https://podspawn.dev/docs/cli/server-commands) -- every command
+- [Podfile Spec](https://podspawn.dev/docs/podfile/overview) -- environment definition
+- [Security](https://podspawn.dev/docs/guides/security-hardening) -- hardening guide
 
 ## Why now
 
