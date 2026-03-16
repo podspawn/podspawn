@@ -10,13 +10,18 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const (
+	StatusRunning     = "running"
+	StatusGracePeriod = "grace_period"
+)
+
 type Session struct {
 	User          string
 	Project       string // together with User forms composite PK
 	ContainerID   string
 	ContainerName string
 	Image         string
-	Status        string // "running" | "grace_period"
+	Status        string
 	Connections   int
 	GraceExpiry   sql.NullTime
 	CreatedAt     time.Time

@@ -32,9 +32,9 @@ func Collect(ctx context.Context, store state.SessionStore, rt runtime.Runtime) 
 	for _, sess := range sessions {
 		snap.TotalConnections += sess.Connections
 		switch sess.Status {
-		case "running":
+		case state.StatusRunning:
 			snap.RunningSessions++
-		case "grace_period":
+		case state.StatusGracePeriod:
 			snap.GraceSessions++
 		}
 		age := time.Since(sess.CreatedAt)

@@ -5,11 +5,8 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/podspawn/podspawn/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -34,30 +31,10 @@ func init() {
 }
 
 func resolveTarget(host, port string) (string, error) {
-	if !strings.HasSuffix(host, ".pod") {
-		return net.JoinHostPort(host, port), nil
-	}
-
-	// localhost.pod resolves without config (single-server setup)
-	if host == "localhost.pod" {
-		return net.JoinHostPort("127.0.0.1", port), nil
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
-	}
-
-	clientCfg, err := config.LoadClient(filepath.Join(home, ".podspawn", "config.yaml"))
+	resolved, err := resolvePodHost(host)
 	if err != nil {
 		return "", err
 	}
-
-	resolved, err := clientCfg.ResolveHost(host)
-	if err != nil {
-		return "", err
-	}
-
 	return net.JoinHostPort(resolved, port), nil
 }
 

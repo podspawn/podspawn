@@ -68,7 +68,7 @@ func (f *FakeStore) SetGracePeriod(user, project string, expiry time.Time) error
 	if !ok {
 		return fmt.Errorf("no session for %s/%s", user, project)
 	}
-	sess.Status = "grace_period"
+	sess.Status = StatusGracePeriod
 	sess.GraceExpiry = sql.NullTime{Time: expiry, Valid: true}
 	return nil
 }
@@ -80,7 +80,7 @@ func (f *FakeStore) CancelGracePeriod(user, project string) error {
 	if !ok {
 		return fmt.Errorf("no session for %s/%s", user, project)
 	}
-	sess.Status = "running"
+	sess.Status = StatusRunning
 	sess.GraceExpiry = sql.NullTime{}
 	return nil
 }
@@ -98,7 +98,7 @@ func (f *FakeStore) ExpiredGracePeriods() ([]*Session, error) {
 	now := time.Now()
 	var out []*Session
 	for _, sess := range f.Sessions {
-		if sess.Status == "grace_period" && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(now) {
+		if sess.Status == StatusGracePeriod && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(now) {
 			cp := *sess
 			out = append(out, &cp)
 		}

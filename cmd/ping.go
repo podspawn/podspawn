@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/podspawn/podspawn/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -21,25 +20,9 @@ var pingCmd = &cobra.Command{
   podspawn ping work.pod`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		host := args[0]
-
-		// Resolve .pod hostnames
-		if host == "localhost.pod" {
-			host = "127.0.0.1"
-		} else if strings.HasSuffix(host, ".pod") {
-			cfgPath, err := clientConfigPath()
-			if err != nil {
-				return err
-			}
-			clientCfg, err := config.LoadClient(cfgPath)
-			if err != nil {
-				return fmt.Errorf("resolving %s: configure servers in ~/.podspawn/config.yaml", args[0])
-			}
-			resolved, err := clientCfg.ResolveHost(host)
-			if err != nil {
-				return err
-			}
-			host = resolved
+		host, err := resolvePodHost(args[0])
+		if err != nil {
+			return err
 		}
 
 		// TCP probe
