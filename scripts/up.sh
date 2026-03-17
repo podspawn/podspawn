@@ -139,6 +139,42 @@ esac
 # Prerequisites (local + server modes)
 # ========================================
 if [ "$MODE" = "local" ] || [ "$MODE" = "server" ]; then
+
+    # macOS-specific: host keys + Remote Login
+    if [ "$OS" = "darwin" ]; then
+        # Generate host keys if missing
+        if ! ls /etc/ssh/ssh_host_* >/dev/null 2>&1; then
+            printf "\n"
+            info "macOS has no SSH host keys (needed to run as an SSH server)"
+            info "These identify your machine to SSH clients, like an SSL certificate for a website."
+            info "This is separate from your personal SSH key (~/.ssh/id_ed25519)."
+            printf "\n"
+            GENKEYS=$(ask "Generate host keys? [Y/n]:")
+            if [ "$GENKEYS" != "n" ] && [ "$GENKEYS" != "N" ]; then
+                sudo ssh-keygen -A
+                ok "host keys generated"
+            else
+                warn "cannot run as SSH server without host keys"; exit 1
+            fi
+        fi
+
+        # Enable Remote Login if not running
+        if ! sudo launchctl list 2>/dev/null | grep -q "com.openssh.sshd"; then
+            printf "\n"
+            info "macOS Remote Login (SSH server) is not enabled"
+            info "This allows SSH connections to your Mac. You can disable it later"
+            info "in System Settings > General > Sharing > Remote Login."
+            printf "\n"
+            ENABLE_SSH=$(ask "Enable Remote Login? [Y/n]:")
+            if [ "$ENABLE_SSH" != "n" ] && [ "$ENABLE_SSH" != "N" ]; then
+                sudo systemsetup -setremotelogin on 2>/dev/null || sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
+                ok "Remote Login enabled"
+            else
+                warn "cannot run as SSH server without Remote Login"; exit 1
+            fi
+        fi
+    fi
+
     MISSING=""
 
     if ! command -v sshd >/dev/null 2>&1 && ! [ -x /usr/sbin/sshd ]; then
