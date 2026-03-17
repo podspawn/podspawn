@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+func setOS(t *testing.T, goos string) {
+	t.Helper()
+	prev := osName
+	osName = goos
+	t.Cleanup(func() { osName = prev })
+}
+
 func testPaths(t *testing.T) Paths {
 	t.Helper()
 	root := t.TempDir()
@@ -37,6 +44,7 @@ func writeSSHDConfig(t *testing.T, path, content string) {
 var minimalSSHDConfig = "Port 22\nPermitRootLogin no\n"
 
 func TestAppendsAuthKeysCommand(t *testing.T) {
+	setOS(t, "linux")
 	paths := testPaths(t)
 	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
 	cmd := NewFakeCommander()
@@ -67,6 +75,37 @@ func TestAppendsAuthKeysCommand(t *testing.T) {
 	}
 }
 
+func TestReloadMacOS(t *testing.T) {
+	setOS(t, "darwin")
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+	cmd := NewFakeCommander()
+	var out bytes.Buffer
+
+	if err := Run(paths, cmd, Options{}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	launchctlCalled := false
+	for _, call := range cmd.Calls {
+		if len(call) >= 4 && call[0] == "launchctl" && call[1] == "kickstart" {
+			launchctlCalled = true
+			if call[3] != "system/com.openssh.sshd" {
+				t.Errorf("wrong service label: %s", call[3])
+			}
+		}
+	}
+	if !launchctlCalled {
+		t.Error("launchctl kickstart was not called on macOS")
+	}
+
+	for _, call := range cmd.Calls {
+		if call[0] == "systemctl" {
+			t.Error("systemctl should not be called on macOS")
+		}
+	}
+}
+
 func TestCreatesBackup(t *testing.T) {
 	paths := testPaths(t)
 	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
@@ -87,6 +126,7 @@ func TestCreatesBackup(t *testing.T) {
 }
 
 func TestRollbackOnValidationFailure(t *testing.T) {
+	setOS(t, "linux")
 	paths := testPaths(t)
 	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
 
@@ -269,6 +309,7 @@ func TestBinaryPathInAppendedLine(t *testing.T) {
 }
 
 func TestServiceDetection(t *testing.T) {
+	setOS(t, "linux")
 	paths := testPaths(t)
 	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
 
@@ -292,6 +333,7 @@ func TestServiceDetection(t *testing.T) {
 }
 
 func TestReloadFailureNoRollback(t *testing.T) {
+	setOS(t, "linux")
 	paths := testPaths(t)
 	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
 
@@ -310,6 +352,24 @@ func TestReloadFailureNoRollback(t *testing.T) {
 	data, _ := os.ReadFile(paths.SSHDConfig)
 	if !strings.Contains(string(data), "AuthorizedKeysCommand") {
 		t.Error("config should NOT be rolled back on reload failure (config is valid)")
+	}
+}
+
+func TestReloadFailureMacOS(t *testing.T) {
+	setOS(t, "darwin")
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+
+	cmd := NewFakeCommander()
+	cmd.Errors["launchctl"] = errors.New("kickstart failed")
+	var out bytes.Buffer
+
+	err := Run(paths, cmd, Options{}, &out)
+	if err == nil {
+		t.Fatal("expected error from launchctl failure")
+	}
+	if !strings.Contains(err.Error(), "launchctl kickstart") {
+		t.Errorf("error should mention launchctl, got: %v", err)
 	}
 }
 
