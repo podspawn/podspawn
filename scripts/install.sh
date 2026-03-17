@@ -86,5 +86,6 @@ else
     sudo mv "$TMPDIR/podspawn" "$INSTALL_DIR/podspawn"
 fi
 
+sudo chown root:root "$INSTALL_DIR/podspawn" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/podspawn"
 echo "podspawn ${VERSION} installed to ${INSTALL_DIR}/podspawn"
