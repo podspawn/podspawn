@@ -53,12 +53,12 @@ func WriteKeys(keyDir, username string, keys []string) (int, error) {
 		return 0, err
 	}
 
-	if err := os.MkdirAll(keyDir, 0700); err != nil {
+	if err := os.MkdirAll(keyDir, 0755); err != nil {
 		return 0, fmt.Errorf("creating key directory: %w", err)
 	}
 
 	keyFile := filepath.Join(keyDir, username)
-	f, err := os.OpenFile(keyFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(keyFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return 0, fmt.Errorf("opening key file: %w", err)
 	}

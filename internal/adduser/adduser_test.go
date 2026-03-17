@@ -137,6 +137,26 @@ func TestWriteKeysSkipsBlanks(t *testing.T) {
 	}
 }
 
+func TestWriteKeysFileReadableByOthers(t *testing.T) {
+	dir := t.TempDir()
+	keys := []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGrz test-key"}
+
+	if _, err := WriteKeys(dir, "deploy", keys); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(filepath.Join(dir, "deploy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Key files must be world-readable (0644) so AuthorizedKeysCommandUser nobody can read them
+	perm := info.Mode().Perm()
+	if perm&0044 == 0 {
+		t.Errorf("key file should be readable by others (need 0644 for nobody), got %04o", perm)
+	}
+}
+
 func TestFetchGitHubKeys(t *testing.T) {
 	body := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGrz gh-key-1\nssh-rsa AAAAB3NzaC1yc2EAAAADAQAB gh-key-2\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
