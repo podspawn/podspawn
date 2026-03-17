@@ -113,14 +113,22 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 		}
 	}
 
-	resp, err := d.cli.ContainerCreate(ctx, &container.Config{
+	containerCfg := &container.Config{
 		Image:     opts.Image,
 		Cmd:       opts.Cmd,
 		Env:       opts.Env,
 		Labels:    opts.Labels,
 		OpenStdin: true,
 		Tty:       false,
-	}, hostCfg, networkCfg, nil, opts.Name)
+	}
+	if opts.Hostname != "" {
+		containerCfg.Hostname = opts.Hostname
+	}
+	if opts.User != "" {
+		containerCfg.User = opts.User
+	}
+
+	resp, err := d.cli.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, nil, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("creating container %s: %w", opts.Name, err)
 	}
