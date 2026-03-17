@@ -204,12 +204,56 @@ case "$MODE" in
 esac
 
 # ========================================
+# OrbStack detection (macOS only)
+# ========================================
+ORBSTACK_MODE=""
+if [ "$OS" = "darwin" ] && ([ "$MODE" = "local" ] || [ "$MODE" = "server" ]); then
+    # Check if OrbStack is bound to port 22
+    if lsof -i :22 -sTCP:LISTEN -Pn 2>/dev/null | grep -qi orbstack; then
+        printf "\n"
+        warn "OrbStack Linux machines are using port 22"
+        info "podspawn needs this port for full SSH features"
+        info "Docker still works without Linux machines"
+        printf "\n"
+        printf "  What would you like to do?\n"
+        printf "    ${B}1${R}) ${G}Stop OrbStack machines${R} -- full SSH experience ${D}(recommended)${R}\n"
+        printf "    ${B}2${R}) Keep OrbStack          -- use ${C}podspawn shell${R} instead ${D}(no SFTP/VS Code Remote)${R}\n"
+        printf "\n"
+
+        ORB_CHOICE=$(ask_choice "  Choice [1-2]: ")
+
+        case "$ORB_CHOICE" in
+            1)
+                info "stopping OrbStack Linux machines..."
+                orb stop --all 2>/dev/null || true
+                # Give macOS sshd time to reclaim port 22
+                sleep 2
+                if lsof -i :22 -sTCP:LISTEN -Pn 2>/dev/null | grep -qi orbstack; then
+                    warn "OrbStack still on port 22; try: orb stop --all"
+                    ORBSTACK_MODE="shell"
+                else
+                    ok "OrbStack machines stopped, port 22 free"
+                fi
+                ;;
+            2)
+                ORBSTACK_MODE="shell"
+                ok "keeping OrbStack, will use podspawn shell"
+                ;;
+            *)
+                ORBSTACK_MODE="shell"
+                warn "invalid choice, defaulting to podspawn shell"
+                ;;
+        esac
+    fi
+fi
+
+# ========================================
 # Prerequisites (local + server modes)
 # ========================================
 if [ "$MODE" = "local" ] || [ "$MODE" = "server" ]; then
 
-    # macOS-specific: host keys + Remote Login
-    if [ "$OS" = "darwin" ]; then
+    # macOS-specific: host keys + Remote Login (skip if using shell mode)
+    if [ "$OS" = "darwin" ] && [ "$ORBSTACK_MODE" != "shell" ]; then
         # Generate host keys if missing
         if ! ls /etc/ssh/ssh_host_* >/dev/null 2>&1; then
             printf "\n"
@@ -235,8 +279,16 @@ if [ "$MODE" = "local" ] || [ "$MODE" = "server" ]; then
             printf "\n"
             ENABLE_SSH=$(ask "Enable Remote Login? [Y/n]:")
             if [ "$ENABLE_SSH" != "n" ] && [ "$ENABLE_SSH" != "N" ]; then
-                sudo systemsetup -setremotelogin on 2>/dev/null || sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
-                ok "Remote Login enabled"
+                if sudo systemsetup -setremotelogin on 2>/dev/null; then
+                    ok "Remote Login enabled"
+                elif sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist 2>/dev/null; then
+                    ok "Remote Login enabled"
+                else
+                    warn "could not enable Remote Login automatically"
+                    info "Enable it manually: System Settings > General > Sharing > Remote Login"
+                    info "Then re-run this script"
+                    exit 1
+                fi
             else
                 warn "cannot run as SSH server without Remote Login"; exit 1
             fi
@@ -319,65 +371,88 @@ fi
 if [ "$MODE" = "local" ]; then
     USERNAME=$(whoami)
 
-    step "2" "Configuring sshd"
-    if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
-        ok "already configured"
-    else
-        info "running server-setup (requires sudo)"
-        sudo podspawn server-setup
-        ok "sshd configured"
-    fi
+    if [ "$ORBSTACK_MODE" = "shell" ]; then
+        # Simplified setup: no sshd config needed
+        step "2" "Docker access"
+        # Add to docker group so containers can be created without sudo
+        sudo usermod -aG docker "$USERNAME" 2>/dev/null || true
+        ok "docker group"
 
-    step "3" "Registering your SSH key"
-    if [ -f "/etc/podspawn/keys/$USERNAME" ]; then
-        ok "user $USERNAME already registered"
+        step "3" "Diagnostics"
+        podspawn doctor 2>/dev/null || true
+
+        printf "\n"
+        printf "  ${B}${G}Ready.${R} Try it:\n"
+        printf "\n"
+        printf "    ${C}podspawn shell %s${R}              ${D}# default container${R}\n" "$USERNAME"
+        printf "    ${C}podspawn shell %s@myproject${R}    ${D}# project container${R}\n" "$USERNAME"
+        printf "\n"
+        printf "  ${D}Note: podspawn shell uses Docker exec (no SSH features).${R}\n"
+        printf "  ${D}For full SSH, stop OrbStack machines and re-run this script.${R}\n"
+        printf "\n"
+        printf "  Docs: ${C}https://podspawn.dev${R}\n"
+        printf "\n"
     else
-        KEY_PATH="$HOME/.ssh/id_ed25519"
-        if [ -f "${KEY_PATH}.pub" ]; then
-            info "using existing key ${KEY_PATH}.pub"
+        step "2" "Configuring sshd"
+        if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
+            ok "already configured"
         else
-            info "generating ed25519 key at $KEY_PATH"
-            mkdir -p "$HOME/.ssh"
-            chmod 700 "$HOME/.ssh"
-            ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q </dev/tty 2>/dev/null || ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
-            ok "key generated"
+            info "running server-setup (requires sudo)"
+            sudo podspawn server-setup
+            ok "sshd configured"
         fi
-        sudo podspawn add-user "$USERNAME" --key-file "${KEY_PATH}.pub"
-        ok "registered $USERNAME"
-    fi
 
-    # Unlock account for key auth (sshd rejects locked accounts before checking keys)
-    sudo usermod -p '*' "$USERNAME" 2>/dev/null || true
-    # Add to docker group so containers can be created without sudo
-    sudo usermod -aG docker "$USERNAME" 2>/dev/null || true
-
-    step "4" "Configuring SSH client"
-    if grep -qi "Host \*.pod" "$HOME/.ssh/config" 2>/dev/null; then
-        ok "~/.ssh/config already has *.pod block"
-    else
-        podspawn setup 2>/dev/null
-        ok "added *.pod block"
-    fi
-
-    step "5" "Diagnostics"
-    sudo podspawn doctor 2>/dev/null || true
-
-    # Enable cleanup
-    if command -v systemctl >/dev/null 2>&1; then
-        if [ -f /etc/systemd/system/podspawn-cleanup.timer ]; then
-            sudo systemctl enable --now podspawn-cleanup.timer 2>/dev/null || true
+        step "3" "Registering your SSH key"
+        if [ -f "/etc/podspawn/keys/$USERNAME" ]; then
+            ok "user $USERNAME already registered"
+        else
+            KEY_PATH="$HOME/.ssh/id_ed25519"
+            if [ -f "${KEY_PATH}.pub" ]; then
+                info "using existing key ${KEY_PATH}.pub"
+            else
+                info "generating ed25519 key at $KEY_PATH"
+                mkdir -p "$HOME/.ssh"
+                chmod 700 "$HOME/.ssh"
+                ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q </dev/tty 2>/dev/null || ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
+                ok "key generated"
+            fi
+            sudo podspawn add-user "$USERNAME" --key-file "${KEY_PATH}.pub"
+            ok "registered $USERNAME"
         fi
-    fi
 
-    printf "\n"
-    printf "  ${B}${G}Ready.${R} Try it:\n"
-    printf "\n"
-    printf "    ${C}ssh %s@localhost${R}\n" "$USERNAME"
-    printf "    ${C}ssh %s@localhost.pod${R}\n" "$USERNAME"
-    printf "    ${C}podspawn ssh %s@localhost${R}\n" "$USERNAME"
-    printf "\n"
-    printf "  Docs: ${C}https://podspawn.dev${R}\n"
-    printf "\n"
+        # Unlock account for key auth (sshd rejects locked accounts before checking keys)
+        sudo usermod -p '*' "$USERNAME" 2>/dev/null || true
+        # Add to docker group so containers can be created without sudo
+        sudo usermod -aG docker "$USERNAME" 2>/dev/null || true
+
+        step "4" "Configuring SSH client"
+        if grep -qi "Host \*.pod" "$HOME/.ssh/config" 2>/dev/null; then
+            ok "~/.ssh/config already has *.pod block"
+        else
+            podspawn setup 2>/dev/null
+            ok "added *.pod block"
+        fi
+
+        step "5" "Diagnostics"
+        sudo podspawn doctor 2>/dev/null || true
+
+        # Enable cleanup
+        if command -v systemctl >/dev/null 2>&1; then
+            if [ -f /etc/systemd/system/podspawn-cleanup.timer ]; then
+                sudo systemctl enable --now podspawn-cleanup.timer 2>/dev/null || true
+            fi
+        fi
+
+        printf "\n"
+        printf "  ${B}${G}Ready.${R} Try it:\n"
+        printf "\n"
+        printf "    ${C}ssh %s@localhost${R}\n" "$USERNAME"
+        printf "    ${C}ssh %s@localhost.pod${R}\n" "$USERNAME"
+        printf "    ${C}podspawn ssh %s@localhost${R}\n" "$USERNAME"
+        printf "\n"
+        printf "  Docs: ${C}https://podspawn.dev${R}\n"
+        printf "\n"
+    fi
 fi
 
 # ========================================
