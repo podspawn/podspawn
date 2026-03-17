@@ -71,6 +71,13 @@ if command -v podspawn >/dev/null 2>&1; then
         1)
             sudo podspawn update
             ok "update complete ($(podspawn version 2>/dev/null | head -1))"
+            # If already onboarded, no need to re-run setup
+            if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
+                printf "\n"
+                ok "already configured, nothing else to do"
+                printf "\n"
+                exit 0
+            fi
             ;;
         2)
             BINARY_PATH=$(command -v podspawn)
