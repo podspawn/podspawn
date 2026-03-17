@@ -170,8 +170,8 @@ func (c CheckConfig) checkKeyDir(_ context.Context) Result {
 	}
 	info, _ := os.Stat(c.KeyDir)
 	mode := info.Mode().Perm()
-	if mode != 0700 {
-		return Result{"key directory", Warn, fmt.Sprintf("%s has mode %o, should be 0700", c.KeyDir, mode)}
+	if mode&0002 != 0 {
+		return Result{"key directory", Warn, fmt.Sprintf("%s is world-writable (mode %o)", c.KeyDir, mode)}
 	}
 	return r
 }

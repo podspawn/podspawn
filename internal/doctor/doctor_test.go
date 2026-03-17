@@ -32,15 +32,15 @@ func TestCheckDirExistsNotADir(t *testing.T) {
 	}
 }
 
-func TestCheckKeyDirPermissions(t *testing.T) {
+func TestCheckKeyDirNormalPerms(t *testing.T) {
 	dir := t.TempDir()
 	keyDir := filepath.Join(dir, "keys")
-	_ = os.MkdirAll(keyDir, 0755)
+	_ = os.MkdirAll(keyDir, 0755) // readable but not world-writable is fine
 
 	cfg := CheckConfig{KeyDir: keyDir}
 	r := cfg.checkKeyDir(context.Background())
-	if r.Status != Warn {
-		t.Errorf("expected Warn for 0755 key dir, got %v: %s", r.Status, r.Detail)
+	if r.Status != Pass {
+		t.Errorf("expected Pass for 0755 key dir, got %v: %s", r.Status, r.Detail)
 	}
 }
 

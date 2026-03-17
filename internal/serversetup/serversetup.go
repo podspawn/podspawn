@@ -154,7 +154,7 @@ func createDirectories(paths Paths) error {
 		perm os.FileMode
 	}{
 		{paths.PodspawnDir, 0755},
-		{paths.KeyDir, 0700},
+		{paths.KeyDir, 0755}, // readable by AuthorizedKeysCommandUser (nobody)
 		{paths.StateDir, 0700},
 		{paths.LockDir, 0700},
 	}
