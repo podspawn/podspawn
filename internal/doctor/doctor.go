@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,7 @@ func AllChecks(cfg CheckConfig) []CheckFunc {
 	return []CheckFunc{
 		cfg.checkDocker,
 		cfg.checkDockerSocket,
+		cfg.checkPort22,
 		cfg.checkSSHDVersion,
 		cfg.checkSSHDConfig,
 		cfg.checkAuthKeysCommand,
@@ -79,6 +81,42 @@ func RunAll(ctx context.Context, cfg CheckConfig, w io.Writer) (passed, warned, 
 		}
 	}
 	return
+}
+
+func (c CheckConfig) checkPort22(_ context.Context) Result {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:22", 2*time.Second)
+	if err != nil {
+		return Result{"SSH port 22", Warn, "nothing listening on port 22; enable sshd or check your firewall"}
+	}
+	defer conn.Close() //nolint:errcheck
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 256)
+	n, _ := conn.Read(buf)
+	banner := string(buf[:n])
+
+	// OrbStack doesn't send an SSH banner on port 22 (it's a TCP proxy),
+	// or it sends the VM's sshd banner which contains "Ubuntu" or similar.
+	// Native macOS sshd sends "SSH-2.0-OpenSSH_X.Y" without distro info.
+	// Linux system sshd sends "SSH-2.0-OpenSSH_X.Y" or with distro suffix.
+	out, _ := exec.Command("lsof", "-i", ":22", "-sTCP:LISTEN", "-Pn", "-t").Output()
+	pids := strings.TrimSpace(string(out))
+	if pids != "" {
+		for _, pid := range strings.Split(pids, "\n") {
+			procOut, _ := exec.Command("ps", "-p", pid, "-o", "comm=").Output()
+			proc := strings.TrimSpace(string(procOut))
+			if strings.Contains(strings.ToLower(proc), "orbstack") {
+				return Result{"SSH port 22", Warn,
+					"OrbStack is bound to port 22; stop Linux machines with: orb stop --all (Docker still works). Or use: podspawn shell"}
+			}
+		}
+	}
+
+	if strings.Contains(banner, "SSH-2.0-OpenSSH") {
+		return Result{"SSH port 22", Pass, strings.TrimSpace(banner)}
+	}
+
+	return Result{"SSH port 22", Warn, fmt.Sprintf("unexpected service on port 22 (banner: %q)", strings.TrimSpace(banner))}
 }
 
 func (c CheckConfig) checkDocker(ctx context.Context) Result {

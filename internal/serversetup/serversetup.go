@@ -151,8 +151,8 @@ func createDirectories(paths Paths) error {
 	}{
 		{paths.PodspawnDir, 0755},
 		{paths.KeyDir, 0755}, // readable by AuthorizedKeysCommandUser (nobody)
-		{paths.StateDir, 0700},
-		{paths.LockDir, 0700},
+		{paths.StateDir, 0755},
+		{paths.LockDir, 0755},
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d.path, d.perm); err != nil {
@@ -163,6 +163,15 @@ func createDirectories(paths Paths) error {
 	if _, err := os.Stat(paths.EmergencyKey); errors.Is(err, fs.ErrNotExist) {
 		if err := os.WriteFile(paths.EmergencyKey, nil, 0600); err != nil {
 			return fmt.Errorf("creating %s: %w", paths.EmergencyKey, err)
+		}
+	}
+
+	// Pre-create state DB so non-root users (via sshd ForceCommand) can use it.
+	// SQLite needs write access to the DB file and its directory (for WAL/SHM).
+	stateDB := filepath.Join(paths.StateDir, "state.db")
+	if _, err := os.Stat(stateDB); errors.Is(err, fs.ErrNotExist) {
+		if err := os.WriteFile(stateDB, nil, 0666); err != nil {
+			return fmt.Errorf("creating %s: %w", stateDB, err)
 		}
 	}
 
