@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -93,6 +94,17 @@ func Defaults() *Config {
 		},
 		ProjectsFile: "/etc/podspawn/projects.yaml",
 	}
+}
+
+func LocalDefaults() *Config {
+	home, _ := os.UserHomeDir()
+	podspawnDir := filepath.Join(home, ".podspawn")
+
+	cfg := Defaults()
+	cfg.State.DBPath = filepath.Join(podspawnDir, "state.db")
+	cfg.State.LockDir = filepath.Join(podspawnDir, "locks")
+	cfg.Session.MaxLifetime = "24h"
+	return cfg
 }
 
 func (c *Config) Validate() error {

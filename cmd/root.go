@@ -3,14 +3,16 @@ package cmd
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var (
-	cfg     *config.Config
-	logFile *os.File
+	cfg         *config.Config
+	logFile     *os.File
+	isLocalMode bool
 )
 
 var configOptionalCommands = map[string]bool{
@@ -20,6 +22,11 @@ var configOptionalCommands = map[string]bool{
 	"list-users": true, "remove-user": true, "remove-project": true,
 	"doctor": true, "update": true,
 	"config": true, "servers": true, "ssh": true, "open": true, "ping": true,
+	"create": true, "run": true, "shell": true,
+}
+
+var localModeCommands = map[string]bool{
+	"create": true, "run": true, "shell": true,
 }
 
 var rootCmd = &cobra.Command{
@@ -31,8 +38,13 @@ var rootCmd = &cobra.Command{
 		loaded, err := config.Load(configPath)
 		if err != nil {
 			if configOptionalCommands[cmd.Name()] || !cmd.HasParent() {
-				slog.Warn("config load failed, using defaults", "path", configPath, "error", err)
-				loaded = config.Defaults()
+				if localModeCommands[cmd.Name()] {
+					loaded = config.LocalDefaults()
+					loadLocalOverrides(loaded)
+					isLocalMode = true
+				} else {
+					loaded = config.Defaults()
+				}
 			} else {
 				return err
 			}
@@ -60,6 +72,18 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().String("config", "/etc/podspawn/config.yaml", "config file path")
 	rootCmd.PersistentFlags().String("log-file", "", "log to file instead of stderr")
+}
+
+func loadLocalOverrides(cfg *config.Config) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	clientCfg, err := config.LoadClient(filepath.Join(home, ".podspawn", "config.yaml"))
+	if err != nil {
+		return
+	}
+	clientCfg.Local.ApplyTo(cfg)
 }
 
 func CloseLog() {

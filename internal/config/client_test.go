@@ -135,6 +135,89 @@ func TestResolveHostNonPodPassthrough(t *testing.T) {
 	}
 }
 
+func TestLocalConfigApplyToOverridesFields(t *testing.T) {
+	cfg := LocalDefaults()
+	lc := LocalConfig{
+		Image:       "alpine:3.20",
+		Shell:       "/bin/zsh",
+		CPUs:        8,
+		Memory:      "16g",
+		GracePeriod: "120s",
+		MaxLifetime: "48h",
+		Mode:        "destroy-on-disconnect",
+	}
+	lc.ApplyTo(cfg)
+
+	if cfg.Defaults.Image != "alpine:3.20" {
+		t.Errorf("image = %q, want alpine:3.20", cfg.Defaults.Image)
+	}
+	if cfg.Defaults.Shell != "/bin/zsh" {
+		t.Errorf("shell = %q, want /bin/zsh", cfg.Defaults.Shell)
+	}
+	if cfg.Defaults.CPUs != 8 {
+		t.Errorf("cpus = %f, want 8", cfg.Defaults.CPUs)
+	}
+	if cfg.Defaults.Memory != "16g" {
+		t.Errorf("memory = %q, want 16g", cfg.Defaults.Memory)
+	}
+	if cfg.Session.GracePeriod != "120s" {
+		t.Errorf("grace_period = %q, want 120s", cfg.Session.GracePeriod)
+	}
+	if cfg.Session.MaxLifetime != "48h" {
+		t.Errorf("max_lifetime = %q, want 48h", cfg.Session.MaxLifetime)
+	}
+	if cfg.Session.Mode != "destroy-on-disconnect" {
+		t.Errorf("mode = %q, want destroy-on-disconnect", cfg.Session.Mode)
+	}
+}
+
+func TestLocalConfigApplyToSkipsZeroValues(t *testing.T) {
+	cfg := LocalDefaults()
+	lc := LocalConfig{Image: "debian:12"} // only image set
+	lc.ApplyTo(cfg)
+
+	if cfg.Defaults.Image != "debian:12" {
+		t.Errorf("image = %q, want debian:12", cfg.Defaults.Image)
+	}
+	if cfg.Defaults.Shell != "/bin/bash" {
+		t.Errorf("shell should stay default, got %q", cfg.Defaults.Shell)
+	}
+	if cfg.Defaults.CPUs != 2.0 {
+		t.Errorf("cpus should stay default, got %f", cfg.Defaults.CPUs)
+	}
+	if cfg.Session.MaxLifetime != "24h" {
+		t.Errorf("max_lifetime should stay local default, got %q", cfg.Session.MaxLifetime)
+	}
+}
+
+func TestLoadClientWithLocalSection(t *testing.T) {
+	yaml := `
+servers:
+  default: myserver.com
+local:
+  image: fedora:41
+  shell: /bin/fish
+  cpus: 4
+  memory: 4g
+`
+	cfg, err := LoadClient(writeClientTemp(t, yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Local.Image != "fedora:41" {
+		t.Errorf("local.image = %q, want fedora:41", cfg.Local.Image)
+	}
+	if cfg.Local.Shell != "/bin/fish" {
+		t.Errorf("local.shell = %q, want /bin/fish", cfg.Local.Shell)
+	}
+	if cfg.Local.CPUs != 4 {
+		t.Errorf("local.cpus = %f, want 4", cfg.Local.CPUs)
+	}
+	if cfg.Local.Memory != "4g" {
+		t.Errorf("local.memory = %q, want 4g", cfg.Local.Memory)
+	}
+}
+
 func TestResolveHostBarePodSuffix(t *testing.T) {
 	cfg := &ClientConfig{
 		Servers: ServerRouting{Default: "fallback.example.com"},
