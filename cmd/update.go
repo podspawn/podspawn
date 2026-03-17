@@ -75,19 +75,8 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("resolving binary path: %w", err)
 		}
 
-		// Write to temp file in same directory as target (ensures same filesystem
-		// for atomic rename). Falls back to cross-device copy if rename fails.
-		stagingPath := currentBinary + ".new"
-		if err := copyFile(newBinary, stagingPath); err != nil {
-			return fmt.Errorf("staging new binary: %w", err)
-		}
-		if err := os.Chmod(stagingPath, 0755); err != nil {
-			_ = os.Remove(stagingPath)
-			return fmt.Errorf("setting binary permissions: %w", err)
-		}
-		if err := os.Rename(stagingPath, currentBinary); err != nil {
-			_ = os.Remove(stagingPath)
-			return fmt.Errorf("replacing binary: %w", err)
+		if err := installBinary(newBinary, currentBinary); err != nil {
+			return err
 		}
 
 		fmt.Printf("updated to %s\n", latest)
@@ -143,6 +132,51 @@ func downloadFile(url, dest string) error {
 		return err
 	}
 	return f.Sync()
+}
+
+func installBinary(src, dst string) error {
+	dir := filepath.Dir(dst)
+
+	if dirWritable(dir) {
+		stagingPath := dst + ".new"
+		if err := copyFile(src, stagingPath); err != nil {
+			return fmt.Errorf("staging new binary: %w", err)
+		}
+		if err := os.Chmod(stagingPath, 0755); err != nil {
+			_ = os.Remove(stagingPath)
+			return fmt.Errorf("setting binary permissions: %w", err)
+		}
+		if err := os.Rename(stagingPath, dst); err != nil {
+			_ = os.Remove(stagingPath)
+			return fmt.Errorf("replacing binary: %w", err)
+		}
+		if runtime.GOOS == "darwin" {
+			_ = exec.Command("xattr", "-dr", "com.apple.quarantine", dst).Run()
+		}
+		return nil
+	}
+
+	fmt.Println("installing to protected directory, requesting sudo...")
+	if err := exec.Command("sudo", "cp", src, dst).Run(); err != nil {
+		return fmt.Errorf("sudo cp failed (run manually with: sudo cp %s %s): %w", src, dst, err)
+	}
+	if err := exec.Command("sudo", "chmod", "+x", dst).Run(); err != nil {
+		return fmt.Errorf("sudo chmod failed: %w", err)
+	}
+	if runtime.GOOS == "darwin" {
+		_ = exec.Command("sudo", "xattr", "-dr", "com.apple.quarantine", dst).Run()
+	}
+	return nil
+}
+
+func dirWritable(path string) bool {
+	f, err := os.CreateTemp(path, ".podspawn-perm-check-")
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(f.Name())
+	return true
 }
 
 func copyFile(src, dst string) error {

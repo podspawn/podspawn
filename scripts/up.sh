@@ -56,7 +56,64 @@ step "1" "Installing podspawn"
 if command -v podspawn >/dev/null 2>&1; then
     CURRENT=$(podspawn version 2>/dev/null | head -1 || echo "unknown")
     ok "already installed ($CURRENT)"
-else
+
+    printf "\n"
+    printf "  What would you like to do?\n"
+    printf "    ${B}1${R}) ${G}Update${R}      -- check for a newer version\n"
+    printf "    ${B}2${R}) Reinstall   -- clean install of latest\n"
+    printf "    ${B}3${R}) Uninstall   -- remove podspawn and config\n"
+    printf "    ${B}4${R}) Continue    -- keep current, proceed to setup\n"
+    printf "\n"
+
+    ACTION=$(ask_choice "  Choice [1-4]: ")
+
+    case "$ACTION" in
+        1)
+            sudo podspawn update
+            ok "update complete ($(podspawn version 2>/dev/null | head -1))"
+            ;;
+        2)
+            BINARY_PATH=$(command -v podspawn)
+            info "removing ${BINARY_PATH}"
+            sudo rm -f "$BINARY_PATH"
+            ok "removed old binary"
+            # Fall through to the install block below
+            FORCE_INSTALL=1
+            ;;
+        3)
+            BINARY_PATH=$(command -v podspawn)
+            info "removing ${BINARY_PATH}"
+            sudo rm -f "$BINARY_PATH"
+            if [ -d /etc/podspawn ]; then
+                info "removing /etc/podspawn"
+                sudo rm -rf /etc/podspawn
+            fi
+            if [ -d /var/lib/podspawn ]; then
+                info "removing /var/lib/podspawn"
+                sudo rm -rf /var/lib/podspawn
+            fi
+            if [ -d "$HOME/.podspawn" ]; then
+                info "removing ~/.podspawn"
+                rm -rf "$HOME/.podspawn"
+            fi
+            ok "podspawn uninstalled"
+            printf "\n"
+            printf "  ${D}sshd_config changes were left in place.${R}\n"
+            printf "  ${D}Restore from backup: sudo cp /etc/ssh/sshd_config.podspawn.bak /etc/ssh/sshd_config${R}\n"
+            printf "\n"
+            exit 0
+            ;;
+        4)
+            ;; # continue to mode selection
+        *)
+            warn "invalid choice, continuing with current install"
+            ;;
+    esac
+fi
+
+FORCE_INSTALL="${FORCE_INSTALL:-0}"
+
+if ! command -v podspawn >/dev/null 2>&1 || [ "$FORCE_INSTALL" = "1" ]; then
     FETCH="curl"
     if ! command -v curl >/dev/null 2>&1; then
         if command -v wget >/dev/null 2>&1; then FETCH="wget"
