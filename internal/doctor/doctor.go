@@ -28,27 +28,38 @@ const (
 type CheckFunc func(ctx context.Context) Result
 
 func AllChecks(cfg CheckConfig) []CheckFunc {
-	return []CheckFunc{
+	checks := []CheckFunc{
 		cfg.checkDocker,
 		cfg.checkDockerSocket,
-		cfg.checkSSHDVersion,
-		cfg.checkSSHDConfig,
-		cfg.checkAuthKeysCommand,
-		cfg.checkPodspawnDir,
-		cfg.checkKeyDir,
+	}
+
+	if cfg.ServerConfigured {
+		checks = append(checks,
+			cfg.checkSSHDVersion,
+			cfg.checkSSHDConfig,
+			cfg.checkAuthKeysCommand,
+			cfg.checkPodspawnDir,
+			cfg.checkKeyDir,
+		)
+	}
+
+	checks = append(checks,
 		cfg.checkStateDir,
 		cfg.checkLockDir,
 		cfg.checkDiskSpace,
 		cfg.checkDefaultImage,
-	}
+	)
+
+	return checks
 }
 
 type CheckConfig struct {
-	SSHDConfigPath string
-	KeyDir         string
-	StateDir       string
-	LockDir        string
-	DefaultImage   string
+	SSHDConfigPath   string
+	KeyDir           string
+	StateDir         string
+	LockDir          string
+	DefaultImage     string
+	ServerConfigured bool
 }
 
 func DefaultCheckConfig() CheckConfig {
