@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
+	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -47,12 +47,11 @@ var stopCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		slog.Info("stopping machine", "user", user, "name", project, "container", sess.ContainerName)
 		if err := cleanup.DestroySession(ctx, rt, store, sess); err != nil {
 			return fmt.Errorf("destroying machine: %w", err)
 		}
 
-		fmt.Printf("destroyed machine %q (%s)\n", args[0], sess.ContainerName)
+		ui.Success("Stopped machine %s", args[0])
 		return nil
 	},
 }

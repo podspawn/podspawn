@@ -10,7 +10,7 @@ import (
 var runCmd = &cobra.Command{
 	Use:   "run <name>",
 	Short: "Create and attach to an ephemeral machine",
-	Long: `Create a container and open an interactive shell. Destroys on disconnect by default.
+	Long: `Create a container and open an interactive shell. Destroys on disconnect.
 
   podspawn run scratch                     # ephemeral, default image
   podspawn run scratch --image alpine:3.20   # ephemeral, custom image`,

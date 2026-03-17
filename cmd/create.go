@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -30,15 +30,18 @@ var createCmd = &cobra.Command{
 			ls.Session.Image = image
 		}
 
+		spin := ui.NewSpinner("Creating %s (%s)", name, ls.Session.Image)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		containerName, err := ls.Session.Ensure(ctx)
+		_, err = ls.Session.Ensure(ctx)
 		if err != nil {
-			return fmt.Errorf("creating machine %q: %w", name, err)
+			spin.Fail()
+			return err
 		}
 
-		fmt.Printf("created machine %q (%s)\n", name, containerName)
+		spin.Stop()
 		return nil
 	},
 }
