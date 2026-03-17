@@ -2,7 +2,7 @@
 set -eo pipefail
 
 # podspawn interactive setup
-# curl -sSf https://podspawn.dev/up | bash
+# curl -sSfL https://podspawn.dev/up | bash
 
 REPO="podspawn/podspawn"
 INSTALL_DIR="/usr/local/bin"
