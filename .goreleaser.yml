@@ -31,7 +31,8 @@ builds:
 archives:
   - id: default
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format: tar.gz
+    formats:
+      - tar.gz
     files:
       - LICENSE
 
@@ -78,21 +79,26 @@ nfpms:
         dst: /etc/systemd/system/podspawn-cleanup.timer
         type: config
 
-brews:
-  - ids:
+homebrew_casks:
+  - name: podspawn
+    ids:
       - default
     repository:
       owner: podspawn
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
-    homepage: https://github.com/podspawn/podspawn
+    homepage: https://podspawn.dev
     description: Ephemeral SSH dev containers via native sshd
-    license: AGPL-3.0
-    install: |
-      bin.install "podspawn"
-    test: |
-      system "#{bin}/podspawn", "version"
+    binaries:
+      - podspawn
+    url:
+      verified: "github.com/podspawn/podspawn"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/podspawn"]
+          end
 
 release:
   github:

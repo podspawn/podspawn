@@ -113,6 +113,10 @@ else
     fi
     sudo chown root:root "$INSTALL_DIR/podspawn" 2>/dev/null || true
     chmod +x "$INSTALL_DIR/podspawn"
+    # macOS quarantines binaries downloaded via curl; strip it so Gatekeeper doesn't block
+    if [ "$OS" = "darwin" ]; then
+        xattr -dr com.apple.quarantine "$INSTALL_DIR/podspawn" 2>/dev/null || true
+    fi
     ok "installed ${VERSION}"
 fi
 
