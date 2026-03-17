@@ -8,6 +8,7 @@ import (
 
 	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/state"
+	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -27,21 +28,21 @@ var listCmd = &cobra.Command{
 		}
 
 		if len(sessions) == 0 {
-			fmt.Println("No machines.")
+			fmt.Println("No machines running.")
 			return nil
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		if isLocalMode {
-			_, _ = fmt.Fprintln(w, "NAME\tSTATUS\tIMAGE\tCONTAINER\tAGE")
+			_, _ = fmt.Fprintln(w, ui.Bold("NAME")+"\t"+ui.Bold("STATUS")+"\t"+ui.Bold("IMAGE")+"\t"+ui.Bold("AGE"))
 			for _, sess := range sessions {
 				name := sess.Project
 				if name == "" {
 					name = "(default)"
 				}
 				age := cleanup.FormatDuration(time.Since(sess.CreatedAt))
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					name, sess.Status, sess.Image, sess.ContainerName, age,
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+					name, ui.ColorStatus(sess.Status), ui.Faint(sess.Image), age,
 				)
 			}
 		} else {

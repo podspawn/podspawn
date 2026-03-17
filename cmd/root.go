@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -56,6 +57,11 @@ var rootCmd = &cobra.Command{
 				}
 			}
 			cfg = loaded
+		}
+
+		// Suppress slog for local-mode commands (user-facing, not server internals)
+		if isLocalMode {
+			slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 		}
 
 		logPath, _ := cmd.Flags().GetString("log-file")
