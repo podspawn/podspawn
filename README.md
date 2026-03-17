@@ -29,7 +29,7 @@ Real system users are unaffected. If podspawn doesn't recognize the username, it
 ## Quick start
 
 ```bash
-curl -sSf https://podspawn.dev/up | bash
+curl -sSfL https://podspawn.dev/up | bash
 ```
 
 One command for everything. It auto-detects your environment:
