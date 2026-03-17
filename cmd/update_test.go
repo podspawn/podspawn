@@ -86,14 +86,20 @@ func TestInstallBinaryReadOnlyDirNeedsSudo(t *testing.T) {
 		t.Skip("can't create read-only dir (running as root?)")
 	}
 
-	// installBinary will try sudo, which will fail in test env.
-	// The important thing is it doesn't fail with "staging new binary: permission denied"
-	// but instead fails with a sudo-related error.
 	err := installBinary(src, dst)
 	if err == nil {
-		t.Fatal("expected error when sudo isn't available in test")
+		// sudo worked (e.g. CI with passwordless sudo), verify the binary landed
+		data, readErr := os.ReadFile(dst)
+		if readErr != nil {
+			t.Fatal("installBinary succeeded but binary missing:", readErr)
+		}
+		if string(data) != "new content" {
+			t.Errorf("binary content mismatch, got %q", string(data))
+		}
+		return
 	}
-	if got := err.Error(); !strings.Contains(got, "sudo cp failed") {
-		t.Errorf("expected sudo-related error, got: %s", got)
+	// sudo failed (local dev without passwordless sudo), verify error message
+	if !strings.Contains(err.Error(), "sudo cp failed") {
+		t.Errorf("expected sudo-related error, got: %s", err)
 	}
 }
