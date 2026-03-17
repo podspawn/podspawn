@@ -154,9 +154,9 @@ func createDirectories(paths Paths) error {
 		perm os.FileMode
 	}{
 		{paths.PodspawnDir, 0755},
-		{paths.KeyDir, 0755},
-		{paths.StateDir, 0755},
-		{paths.LockDir, 0755},
+		{paths.KeyDir, 0700},
+		{paths.StateDir, 0700},
+		{paths.LockDir, 0700},
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d.path, d.perm); err != nil {
