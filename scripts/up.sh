@@ -111,6 +111,7 @@ else
         info "installing to ${INSTALL_DIR} (requires sudo)"
         sudo mv "$TMPDIR/podspawn" "$INSTALL_DIR/podspawn"
     fi
+    sudo chown root:root "$INSTALL_DIR/podspawn" 2>/dev/null || true
     chmod +x "$INSTALL_DIR/podspawn"
     ok "installed ${VERSION}"
 fi
