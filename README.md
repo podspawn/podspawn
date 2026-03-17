@@ -2,29 +2,15 @@
 
 [![CI](https://github.com/podspawn/podspawn/actions/workflows/ci.yml/badge.svg)](https://github.com/podspawn/podspawn/actions/workflows/ci.yml)
 
-Ephemeral dev containers over SSH. No daemon, no custom server -- just your existing sshd.
+Ephemeral dev containers. Locally or over SSH.
 
 ## The idea
 
-Every tool in this space (ContainerSSH, Coder, DevPod) builds its own SSH server. That's thousands of lines of protocol code reimplementing what OpenSSH already does.
+You need a dev environment. Not a VM (too heavy), not a raw container (too bare), not a cloud workspace (too slow to spin up, too expensive to keep).
 
-podspawn doesn't do that. It's a **single binary** that works as both server and client. On the server, it hooks into your existing sshd via `AuthorizedKeysCommand`. On the client, it provides `.pod` namespace routing. Same binary, same install, different commands. Because sshd handles the protocol, every SSH feature works out of the box: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway.
+podspawn gives you **named machines** backed by Docker containers, configured with a Podfile (packages, services, env vars, hooks). Locally, it's zero-friction: no SSH, no root, no daemon. On a server, it hooks into your existing sshd so teammates just `ssh` in.
 
-## How it works
-
-```
-ssh deploy@backend.pod
-  -> ProxyCommand resolves backend.pod to your server
-  -> sshd calls: podspawn auth-keys deploy
-  -> podspawn returns keys with command="podspawn spawn --user deploy"
-  -> sshd authenticates, forces the command
-  -> container created from project's Podfile
-  -> companion services (postgres, redis) start on a shared network
-  -> you're in a fully configured dev environment
-  -> exit -> grace period -> reconnect within 60s -> same container
-```
-
-Real system users are unaffected. If podspawn doesn't recognize the username, it returns nothing and sshd falls through to normal auth.
+One binary. Local or remote. Same workflow.
 
 ## Quick start
 
@@ -32,13 +18,31 @@ Real system users are unaffected. If podspawn doesn't recognize the username, it
 curl -sSfL https://podspawn.dev/up | bash
 ```
 
-One command for everything. It auto-detects your environment:
+### Local mode (no SSH, no root)
 
-- **Server** (sshd + Docker found): installs binary, configures sshd, walks you through SSH key setup, runs diagnostics, enables cleanup daemon
-- **Client** (no sshd): installs binary, configures `~/.ssh/config` for `.pod` namespace, asks for your server hostname
-- **Windows**: add 3 lines to `~/.ssh/config` manually (see [docs](https://podspawn.dev/docs/getting-started/installation))
+```bash
+podspawn create dev                    # create a machine
+podspawn shell dev                     # attach to it
+podspawn run scratch                   # ephemeral throwaway
+podspawn list                          # see machines
+podspawn stop dev                      # destroy it
+```
 
-For the full walkthrough, see the [tutorial](https://podspawn.dev/docs/guides/tutorial).
+Just install podspawn + have Docker (OrbStack, Docker Desktop, Colima, Podman).
+
+### Server mode (for teams)
+
+```
+ssh deploy@backend.pod
+  -> ProxyCommand resolves backend.pod to your server
+  -> sshd calls: podspawn auth-keys deploy
+  -> podspawn returns keys with command="podspawn spawn --user deploy"
+  -> container created from project's Podfile
+  -> companion services (postgres, redis) start on a shared network
+  -> you're in a fully configured dev environment
+```
+
+Every SSH feature works: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway. Teammates need zero client-side install.
 
 ## Podfile
 
@@ -64,63 +68,70 @@ on_create: "make setup"
 on_start: "echo welcome back"
 ```
 
-Images are pre-built at registration time, not during SSH. Companion services get their own containers on a shared Docker network with DNS discovery.
-
-Also supports `devcontainer.json` as a fallback.
+Companion services get their own containers on a shared Docker network with DNS discovery.
 
 ## Features
 
-- **Native sshd** -- two lines of config, every SSH feature works
+- **Local machines** -- `podspawn create/run/shell`, no SSH needed, no root
+- **Server mode** -- hooks into native sshd, every SSH feature works
 - **Podfile environments** -- packages, services, dotfiles, hooks
 - **devcontainer.json fallback** -- existing devcontainers work too
 - **Security by default** -- cap-drop ALL, no-new-privileges, PID limits, per-user network isolation
 - **gVisor support** -- `runtime: runsc` in config for kernel-level isolation
-- **Agent forwarding** -- SSH_AUTH_SOCK bind-mounted into containers
 - **Grace period lifecycle** -- survive network blips, configurable TTLs
 - **Session state** -- SQLite with connection counting, per-user file locking
 - **Cleanup daemon** -- expires grace periods, enforces lifetimes, reconciles orphans
 - **Audit logging** -- structured JSON-lines for every session event
 - **Prometheus metrics** -- `podspawn status --prometheus`
-- **Doctor command** -- 11 preflight checks for setup validation
-- **Multi-arch** -- linux/darwin, amd64/arm64, deb/rpm, Homebrew
+- **Multi-arch** -- linux/darwin/windows, amd64/arm64, deb/rpm, Homebrew
 
 ## Commands
 
 ```
+# Local mode
+podspawn create            # Create a named machine
+podspawn run               # Create + attach, ephemeral
+podspawn shell             # Attach to existing machine
+podspawn list              # Show machines
+podspawn stop              # Destroy a machine
+
+# Server mode
 podspawn server-setup      # Configure sshd
 podspawn add-user          # Register SSH keys
 podspawn add-project       # Clone repo + build Podfile image
-podspawn connect           # ProxyCommand handler (.pod namespace)
-podspawn setup             # Configure client ~/.ssh/config
-podspawn list              # Active sessions
-podspawn stop              # Destroy a session
-podspawn cleanup           # Reconcile orphans + enforce TTLs
-podspawn status            # System metrics
 podspawn doctor            # Preflight checks
-podspawn list-users        # Registered users
-podspawn remove-user       # Remove user + sessions
-podspawn remove-project    # Deregister project
-podspawn verify-image      # Check image compatibility
+
+# Client mode
+podspawn setup             # Configure ~/.ssh/config
+podspawn connect           # ProxyCommand handler (.pod namespace)
+podspawn ssh               # SSH wrapper with .pod suffix
+podspawn open              # VS Code / Cursor launcher
 ```
 
 ## Requirements
 
-- Docker (or OrbStack, Podman with Docker-compatible API)
-- OpenSSH 7.4+ (needs `AuthorizedKeysCommand` and `restrict` keyword)
-- Linux server for production (macOS for development via OrbStack)
+**Local mode**: Docker (OrbStack, Docker Desktop, Colima, Podman)
+**Server mode**: Docker + OpenSSH 7.4+ on Linux
+**Client mode**: SSH client
 
 ## Documentation
 
 Full docs at [podspawn.dev](https://podspawn.dev), including:
 - [Tutorial](https://podspawn.dev/docs/guides/tutorial) -- end-to-end walkthrough
-- [Troubleshooting](https://podspawn.dev/docs/guides/troubleshooting) -- common issues
 - [CLI Reference](https://podspawn.dev/docs/cli/server-commands) -- every command
 - [Podfile Spec](https://podspawn.dev/docs/podfile/overview) -- environment definition
 - [Security](https://podspawn.dev/docs/guides/security-hardening) -- hardening guide
 
-## Why now
+## Why podspawn
 
-Gitpod pivoted to AI agents (rebranded as "Ona", September 2025). Hocus is dead (archived September 2024). ContainerSSH requires replacing your SSH server entirely. The self-hosted "just SSH in" niche is underserved at the exact moment AI coding agents need disposable environments most.
+| | OrbStack | DevPod | podspawn |
+|---|---|---|---|
+| Platform | macOS only | macOS/Linux/Windows | macOS/Linux/Windows |
+| Config | GUI | devcontainer.json | Podfile (simpler) |
+| Services | manual | manual | first-class |
+| Remote/teams | no | limited | native SSH |
+| AI agent sandbox | no | no | isolated containers |
+| Open source | no | yes | yes (AGPL-3.0) |
 
 ## License
 
