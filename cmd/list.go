@@ -13,7 +13,7 @@ import (
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List active sessions",
+	Short: "List machines",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		store, err := state.Open(cfg.State.DBPath)
 		if err != nil {
@@ -23,32 +23,45 @@ var listCmd = &cobra.Command{
 
 		sessions, err := store.ListSessions()
 		if err != nil {
-			return fmt.Errorf("listing sessions: %w", err)
+			return fmt.Errorf("listing machines: %w", err)
 		}
 
 		if len(sessions) == 0 {
-			fmt.Println("No active sessions.")
+			fmt.Println("No machines.")
 			return nil
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "USER\tPROJECT\tCONTAINER\tSTATUS\tCONNS\tAGE\tLIFETIME LEFT")
-		for _, sess := range sessions {
-			project := sess.Project
-			if project == "" {
-				project = "(default)"
+		if isLocalMode {
+			_, _ = fmt.Fprintln(w, "NAME\tSTATUS\tIMAGE\tCONTAINER\tAGE")
+			for _, sess := range sessions {
+				name := sess.Project
+				if name == "" {
+					name = "(default)"
+				}
+				age := cleanup.FormatDuration(time.Since(sess.CreatedAt))
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+					name, sess.Status, sess.Image, sess.ContainerName, age,
+				)
 			}
-			age := cleanup.FormatDuration(time.Since(sess.CreatedAt))
-			remaining := time.Until(sess.MaxLifetime)
-			lifetime := cleanup.FormatDuration(remaining)
-			if remaining <= 0 {
-				lifetime = "expired"
+		} else {
+			_, _ = fmt.Fprintln(w, "USER\tPROJECT\tCONTAINER\tSTATUS\tCONNS\tAGE\tLIFETIME LEFT")
+			for _, sess := range sessions {
+				project := sess.Project
+				if project == "" {
+					project = "(default)"
+				}
+				age := cleanup.FormatDuration(time.Since(sess.CreatedAt))
+				remaining := time.Until(sess.MaxLifetime)
+				lifetime := cleanup.FormatDuration(remaining)
+				if remaining <= 0 {
+					lifetime = "expired"
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+					sess.User, project, sess.ContainerName,
+					sess.Status, sess.Connections, age, lifetime,
+				)
 			}
-
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
-				sess.User, project, sess.ContainerName,
-				sess.Status, sess.Connections, age, lifetime,
-			)
 		}
 		return w.Flush()
 	},

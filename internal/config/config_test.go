@@ -202,6 +202,45 @@ func TestLoadInvalidYAML(t *testing.T) {
 	}
 }
 
+func TestLocalDefaults(t *testing.T) {
+	cfg := LocalDefaults()
+
+	home, _ := os.UserHomeDir()
+	wantDB := filepath.Join(home, ".podspawn", "state.db")
+	wantLocks := filepath.Join(home, ".podspawn", "locks")
+
+	if cfg.State.DBPath != wantDB {
+		t.Errorf("state.db_path = %q, want %q", cfg.State.DBPath, wantDB)
+	}
+	if cfg.State.LockDir != wantLocks {
+		t.Errorf("state.lock_dir = %q, want %q", cfg.State.LockDir, wantLocks)
+	}
+	if cfg.Session.MaxLifetime != "24h" {
+		t.Errorf("session.max_lifetime = %q, want 24h", cfg.Session.MaxLifetime)
+	}
+	// Should inherit server defaults for everything else
+	if cfg.Defaults.Image != "ubuntu:24.04" {
+		t.Errorf("defaults.image = %q, want ubuntu:24.04", cfg.Defaults.Image)
+	}
+	if cfg.Defaults.Shell != "/bin/bash" {
+		t.Errorf("defaults.shell = %q, want /bin/bash", cfg.Defaults.Shell)
+	}
+}
+
+func TestLocalDefaultsPathsAreUserLocal(t *testing.T) {
+	cfg := LocalDefaults()
+
+	if strings.HasPrefix(cfg.State.DBPath, "/var") {
+		t.Errorf("local DB path should not be under /var: %s", cfg.State.DBPath)
+	}
+	if strings.HasPrefix(cfg.State.LockDir, "/var") {
+		t.Errorf("local lock dir should not be under /var: %s", cfg.State.LockDir)
+	}
+	if !strings.Contains(cfg.State.DBPath, ".podspawn") {
+		t.Errorf("local DB path should contain .podspawn: %s", cfg.State.DBPath)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")

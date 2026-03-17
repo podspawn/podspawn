@@ -57,6 +57,22 @@ func (s *Session) containerName() string {
 	return "podspawn-" + s.Username
 }
 
+// Ensure creates the container and records it in state, but does not attach
+// or route a session. Used by `podspawn create` to provision machines without
+// opening a shell.
+func (s *Session) Ensure(ctx context.Context) (string, error) {
+	if s.Store == nil {
+		return "", fmt.Errorf("state store required for machine creation")
+	}
+	containerName, isNew, err := s.ensureContainerWithState(ctx)
+	if err != nil {
+		return "", err
+	}
+	s.ensurePodfileParsed()
+	s.runHooks(ctx, containerName, isNew)
+	return containerName, nil
+}
+
 func (s *Session) Run(ctx context.Context) (int, error) {
 	if s.Store != nil {
 		containerName, isNew, err := s.ensureContainerWithState(ctx)

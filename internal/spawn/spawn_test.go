@@ -1628,3 +1628,104 @@ func TestMaxPerUserAllowsReattach(t *testing.T) {
 		t.Errorf("connections = %d, want 2 after reattach", got.Connections)
 	}
 }
+
+func TestEnsureCreatesContainerWithoutAttaching(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "mydev",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 24 * time.Hour,
+		Mode:        "grace-period",
+	}
+
+	containerName, err := sess.Ensure(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if containerName != "podspawn-deploy-mydev" {
+		t.Errorf("container name = %q, want podspawn-deploy-mydev", containerName)
+	}
+
+	if _, ok := fake.Containers[containerName]; !ok {
+		t.Error("container should exist after Ensure")
+	}
+
+	// Should have a session in the store
+	got, _ := store.GetSession("deploy", "mydev")
+	if got == nil {
+		t.Fatal("session should exist in store after Ensure")
+	}
+	if got.Connections != 1 {
+		t.Errorf("connections = %d, want 1", got.Connections)
+	}
+	if got.Status != "running" {
+		t.Errorf("status = %q, want running", got.Status)
+	}
+
+	// Should NOT have exec'd into the container
+	if len(fake.ExecCalls) != 0 {
+		t.Errorf("Ensure should not exec, got %d exec calls", len(fake.ExecCalls))
+	}
+}
+
+func TestEnsureIsIdempotent(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "mydev",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 24 * time.Hour,
+		Mode:        "grace-period",
+	}
+
+	name1, err := sess.Ensure(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name2, err := sess.Ensure(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if name1 != name2 {
+		t.Errorf("second Ensure returned different name: %q vs %q", name1, name2)
+	}
+
+	// Should only have created the container once
+	if len(fake.CreateCalls) != 1 {
+		t.Errorf("expected 1 create call, got %d", len(fake.CreateCalls))
+	}
+}
+
+func TestEnsureRequiresStore(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := &Session{
+		Username: "deploy",
+		Runtime:  fake,
+		Image:    "ubuntu:24.04",
+		Shell:    "/bin/bash",
+	}
+
+	_, err := sess.Ensure(context.Background())
+	if err == nil {
+		t.Fatal("Ensure without Store should error")
+	}
+	if !strings.Contains(err.Error(), "state store required") {
+		t.Errorf("error should mention state store, got: %v", err)
+	}
+}
