@@ -350,21 +350,156 @@ if [ "$MODE" = "local" ]; then
 
     step "3" "Local config"
     mkdir -p "$HOME/.podspawn"
+
+    # Default values
+    PS_IMAGE="ubuntu:24.04"
+    PS_SHELL="/bin/bash"
+    PS_PACKAGES=""
+    PS_DB=""
+    PS_CACHE=""
+
     if [ ! -f "$HOME/.podspawn/config.yaml" ]; then
+        printf "\n"
+        printf "  ${B}Customize your default machine?${R} ${D}(you can change this later)${R}\n"
+        printf "\n"
+        CUSTOMIZE=$(ask "  Set up now? [Y/n]:")
+
+        if [ "$CUSTOMIZE" != "n" ] && [ "$CUSTOMIZE" != "N" ]; then
+
+            # Use case
+            printf "\n"
+            printf "  ${B}What are you building?${R}\n"
+            printf "    ${B}1${R}) ${G}Web development${R}     ${D}-- Node.js, Python, databases${R}\n"
+            printf "    ${B}2${R}) Systems programming  ${D}-- Go, Rust, C${R}\n"
+            printf "    ${B}3${R}) Data science         ${D}-- Python, Jupyter, pandas${R}\n"
+            printf "    ${B}4${R}) General purpose      ${D}-- bare ubuntu${R}\n"
+            printf "\n"
+            USECASE=$(ask_choice "  Choice [1-4]: ")
+
+            case "$USECASE" in
+                1) PS_PACKAGES="nodejs,python3,git,curl,ripgrep" ;;
+                2) PS_PACKAGES="git,curl,build-essential,ripgrep" ;;
+                3) PS_PACKAGES="python3,python3-pip,git,curl" ;;
+                4) PS_PACKAGES="git,curl" ;;
+                *) PS_PACKAGES="git,curl" ;;
+            esac
+
+            # Shell
+            printf "\n"
+            printf "  ${B}Default shell?${R}\n"
+            printf "    ${B}1${R}) ${G}bash${R}\n"
+            printf "    ${B}2${R}) zsh\n"
+            printf "    ${B}3${R}) fish\n"
+            printf "\n"
+            SHELL_CHOICE=$(ask_choice "  Choice [1-3]: ")
+
+            case "$SHELL_CHOICE" in
+                2) PS_SHELL="/bin/zsh"; PS_PACKAGES="${PS_PACKAGES},zsh" ;;
+                3) PS_SHELL="/usr/bin/fish"; PS_PACKAGES="${PS_PACKAGES},fish" ;;
+                *) PS_SHELL="/bin/bash" ;;
+            esac
+
+            # Base image
+            printf "\n"
+            printf "  ${B}Base image?${R}\n"
+            printf "    ${B}1${R}) ${G}Ubuntu 24.04${R}       ${D}(recommended)${R}\n"
+            printf "    ${B}2${R}) Debian 12\n"
+            printf "    ${B}3${R}) Alpine 3.20        ${D}(minimal)${R}\n"
+            printf "\n"
+            IMG_CHOICE=$(ask_choice "  Choice [1-3]: ")
+
+            case "$IMG_CHOICE" in
+                2) PS_IMAGE="debian:12" ;;
+                3) PS_IMAGE="alpine:3.20" ;;
+                *) PS_IMAGE="ubuntu:24.04" ;;
+            esac
+
+            # Database
+            printf "\n"
+            printf "  ${B}Include a database?${R}\n"
+            printf "    ${B}1${R}) None\n"
+            printf "    ${B}2${R}) ${G}PostgreSQL${R}\n"
+            printf "    ${B}3${R}) MySQL\n"
+            printf "    ${B}4${R}) Redis only\n"
+            printf "\n"
+            DB_CHOICE=$(ask_choice "  Choice [1-4]: ")
+
+            case "$DB_CHOICE" in
+                2) PS_DB="postgres" ;;
+                3) PS_DB="mysql" ;;
+                4) PS_CACHE="redis" ;;
+                *) ;;
+            esac
+
+            # Cache (if not already selected redis-only)
+            if [ "$PS_CACHE" != "redis" ] && [ -n "$PS_DB" ]; then
+                printf "\n"
+                printf "  ${B}Include Redis?${R}\n"
+                printf "    ${B}1${R}) No\n"
+                printf "    ${B}2${R}) ${G}Yes${R}\n"
+                printf "\n"
+                CACHE_CHOICE=$(ask_choice "  Choice [1-2]: ")
+                if [ "$CACHE_CHOICE" = "2" ]; then
+                    PS_CACHE="redis"
+                fi
+            fi
+
+            ok "preferences saved"
+        fi
+
+        # Write config
         cat > "$HOME/.podspawn/config.yaml" <<YAML
 local:
-  image: ubuntu:24.04
-  shell: /bin/bash
+  image: ${PS_IMAGE}
+  shell: ${PS_SHELL}
   cpus: 2
   memory: 2g
   max_lifetime: 24h
   mode: grace-period
 YAML
         ok "created ~/.podspawn/config.yaml"
+
+        # Write default Podfile if packages or services were selected
+        if [ -n "$PS_PACKAGES" ] || [ -n "$PS_DB" ] || [ -n "$PS_CACHE" ]; then
+            {
+                printf "base: %s\n" "$PS_IMAGE"
+                printf "shell: %s\n" "$PS_SHELL"
+
+                if [ -n "$PS_PACKAGES" ]; then
+                    printf "packages:\n"
+                    echo "$PS_PACKAGES" | tr ',' '\n' | while read -r pkg; do
+                        [ -n "$pkg" ] && printf "  - %s\n" "$pkg"
+                    done
+                fi
+
+                if [ -n "$PS_DB" ] || [ -n "$PS_CACHE" ]; then
+                    printf "services:\n"
+                    if [ "$PS_DB" = "postgres" ]; then
+                        printf "  - name: postgres\n"
+                        printf "    image: postgres:16\n"
+                        printf "    env:\n"
+                        printf "      POSTGRES_PASSWORD: devpass\n"
+                    elif [ "$PS_DB" = "mysql" ]; then
+                        printf "  - name: mysql\n"
+                        printf "    image: mysql:8\n"
+                        printf "    env:\n"
+                        printf "      MYSQL_ROOT_PASSWORD: devpass\n"
+                    fi
+                    if [ "$PS_CACHE" = "redis" ]; then
+                        printf "  - name: redis\n"
+                        printf "    image: redis:7\n"
+                    fi
+                fi
+            } > "$HOME/.podspawn/default.podfile.yaml"
+            ok "created ~/.podspawn/default.podfile.yaml"
+        fi
     else
         ok "config exists"
     fi
 
+    printf "\n"
+    printf "  ${D}Edit anytime: ~/.podspawn/config.yaml${R}\n"
+    printf "  ${D}Full reference: ${C}https://podspawn.dev/docs/podfile/overview${R}\n"
     printf "\n"
     printf "  ${B}${G}Ready.${R} Try it:\n"
     printf "\n"

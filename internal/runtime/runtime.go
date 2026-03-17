@@ -9,6 +9,8 @@ import (
 type ContainerOpts struct {
 	Name        string
 	Image       string
+	Hostname    string
+	User        string // container user (e.g., "root" or OS username)
 	Cmd         []string
 	Env         []string
 	Mounts      []Mount

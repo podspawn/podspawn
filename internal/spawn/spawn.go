@@ -155,9 +155,16 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	capDrop, capAdd, secOpt, pidsLimit, readonlyRoot, tmpfs, runtimeName := s.securityOpts()
 
 	slog.Info("creating container", "name", containerName, "image", image)
+	hostname := s.ProjectName
+	if hostname == "" {
+		hostname = s.Username
+	}
+
 	id, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 		Name:           containerName,
 		Image:          image,
+		Hostname:       hostname,
+		User:           s.Username,
 		Cmd:            []string{"sleep", "infinity"},
 		Env:            env,
 		Mounts:         mounts,
@@ -221,9 +228,15 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 
 	if !exists {
 		capDrop, capAdd, secOpt, pidsLimit, readonlyRoot, tmpfs, runtimeName := s.securityOpts()
+		legacyHostname := s.ProjectName
+		if legacyHostname == "" {
+			legacyHostname = s.Username
+		}
 		slog.Info("creating container", "name", containerName, "image", s.Image)
 		_, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 			Name:           containerName,
+			Hostname:       legacyHostname,
+			User:           s.Username,
 			Image:          s.Image,
 			Cmd:            []string{"sleep", "infinity"},
 			Mounts:         s.agentMount(),
