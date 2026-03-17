@@ -12,6 +12,42 @@ import (
 
 type ClientConfig struct {
 	Servers ServerRouting `yaml:"servers"`
+	Local   LocalConfig   `yaml:"local"`
+}
+
+type LocalConfig struct {
+	Image       string  `yaml:"image"`
+	Shell       string  `yaml:"shell"`
+	CPUs        float64 `yaml:"cpus"`
+	Memory      string  `yaml:"memory"`
+	GracePeriod string  `yaml:"grace_period"`
+	MaxLifetime string  `yaml:"max_lifetime"`
+	Mode        string  `yaml:"mode"`
+}
+
+// ApplyTo overrides non-zero fields onto a Config.
+func (lc *LocalConfig) ApplyTo(cfg *Config) {
+	if lc.Image != "" {
+		cfg.Defaults.Image = lc.Image
+	}
+	if lc.Shell != "" {
+		cfg.Defaults.Shell = lc.Shell
+	}
+	if lc.CPUs > 0 {
+		cfg.Defaults.CPUs = lc.CPUs
+	}
+	if lc.Memory != "" {
+		cfg.Defaults.Memory = lc.Memory
+	}
+	if lc.GracePeriod != "" {
+		cfg.Session.GracePeriod = lc.GracePeriod
+	}
+	if lc.MaxLifetime != "" {
+		cfg.Session.MaxLifetime = lc.MaxLifetime
+	}
+	if lc.Mode != "" {
+		cfg.Session.Mode = lc.Mode
+	}
 }
 
 type ServerRouting struct {
