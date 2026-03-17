@@ -164,7 +164,6 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		Name:           containerName,
 		Image:          image,
 		Hostname:       hostname,
-		User:           s.Username,
 		Cmd:            []string{"sleep", "infinity"},
 		Env:            env,
 		Mounts:         mounts,
@@ -236,7 +235,6 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 		_, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 			Name:           containerName,
 			Hostname:       legacyHostname,
-			User:           s.Username,
 			Image:          s.Image,
 			Cmd:            []string{"sleep", "infinity"},
 			Mounts:         s.agentMount(),
