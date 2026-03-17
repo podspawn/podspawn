@@ -241,6 +241,11 @@ if [ "$MODE" = "local" ]; then
         ok "registered $USERNAME"
     fi
 
+    # Unlock account for key auth (sshd rejects locked accounts before checking keys)
+    sudo usermod -p '*' "$USERNAME" 2>/dev/null || true
+    # Add to docker group so containers can be created without sudo
+    sudo usermod -aG docker "$USERNAME" 2>/dev/null || true
+
     step "4" "Configuring SSH client"
     if grep -qi "Host \*.pod" "$HOME/.ssh/config" 2>/dev/null; then
         ok "~/.ssh/config already has *.pod block"
@@ -344,6 +349,10 @@ if [ "$MODE" = "server" ]; then
             *) warn "skipped key registration" ;;
         esac
     fi
+
+    # Unlock account for key auth + docker group
+    sudo usermod -p '*' "$USERNAME" 2>/dev/null || true
+    sudo usermod -aG docker "$USERNAME" 2>/dev/null || true
 
     step "4" "Diagnostics"
     sudo podspawn doctor 2>/dev/null || true
