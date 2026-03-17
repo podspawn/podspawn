@@ -46,7 +46,14 @@ case "$ARCH" in
 esac
 
 printf "\n"
-printf "  ${B}podspawn${R} ${D}-- ephemeral SSH dev containers${R}\n"
+printf "${B}${C}                     __                              ${R}\n"
+printf "${B}${C}    ____  ____  ____╱ ╱________  ____ __      ______ ${R}\n"
+printf "${B}${C}   ╱ __ ╲╱ __ ╲╱ __  ╱ ___╱ __ ╲╱ __ \`╱ │ ╱│ ╱ ╱ __ ╲${R}\n"
+printf "${B}${C}  ╱ ╱_╱ ╱ ╱_╱ ╱ ╱_╱ (__  ) ╱_╱ ╱ ╱_╱ ╱│ │╱ │╱ ╱ ╱ ╱ ╱${R}\n"
+printf "${B}${C} ╱ .___╱╲____╱╲__,_╱____╱ .___╱╲__,_╱ │__╱│__╱_╱ ╱_╱ ${R}\n"
+printf "${B}${C}╱_╱                    ╱_╱                           ${R}\n"
+printf "\n"
+printf "  ${D}ephemeral dev containers${R}\n"
 
 # ========================================
 # STEP 1: Install binary
