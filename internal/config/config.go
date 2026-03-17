@@ -97,7 +97,10 @@ func Defaults() *Config {
 }
 
 func LocalDefaults() *Config {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
 	podspawnDir := filepath.Join(home, ".podspawn")
 
 	cfg := Defaults()
