@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,15 +13,27 @@ import (
 	"github.com/podspawn/podspawn/internal/state"
 )
 
-func buildLocalSession(name string) (*spawn.Session, *state.Store, error) {
+type localSession struct {
+	Session *spawn.Session
+	Store   *state.Store
+	closers []func()
+}
+
+func (ls *localSession) Close() {
+	for _, fn := range ls.closers {
+		fn()
+	}
+}
+
+func buildLocalSession(name string) (*localSession, error) {
 	user := os.Getenv("USER")
 	if user == "" {
-		return nil, nil, fmt.Errorf("USER environment variable not set")
+		return nil, fmt.Errorf("USER environment variable not set")
 	}
 
 	rt, err := runtime.NewDockerRuntime()
 	if err != nil {
-		return nil, nil, fmt.Errorf("connecting to docker: %w", err)
+		return nil, fmt.Errorf("connecting to docker: %w", err)
 	}
 
 	memory, _ := config.ParseMemory(cfg.Defaults.Memory)
@@ -29,7 +42,7 @@ func buildLocalSession(name string) (*spawn.Session, *state.Store, error) {
 
 	store, err := state.Open(cfg.State.DBPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("opening state db: %w", err)
+		return nil, fmt.Errorf("opening state db: %w", err)
 	}
 
 	sess := &spawn.Session{
@@ -49,10 +62,37 @@ func buildLocalSession(name string) (*spawn.Session, *state.Store, error) {
 		Store:       store,
 	}
 
-	auditLogger, auditErr := audit.Open(cfg.Log.AuditLog)
-	if auditErr == nil && auditLogger != nil {
-		sess.Audit = auditLogger
+	ls := &localSession{
+		Session: sess,
+		Store:   store,
+		closers: []func(){func() { _ = store.Close() }},
 	}
 
-	return sess, store, nil
+	if name != "" {
+		projects, loadErr := config.LoadProjects(cfg.ProjectsFile)
+		if loadErr != nil {
+			slog.Warn("failed to load projects", "error", loadErr)
+		} else if p, ok := projects[name]; ok {
+			sess.Project = &p
+		}
+	}
+
+	uo, err := config.LoadUserOverrides("/etc/podspawn", user)
+	if err != nil {
+		slog.Warn("failed to load user overrides", "user", user, "error", err)
+	}
+	if uo != nil {
+		sess.UserOverrides = uo
+	}
+
+	auditLogger, auditErr := audit.Open(cfg.Log.AuditLog)
+	if auditErr != nil {
+		slog.Warn("failed to open audit log", "error", auditErr)
+	}
+	if auditLogger != nil {
+		sess.Audit = auditLogger
+		ls.closers = append(ls.closers, func() { _ = auditLogger.Close() })
+	}
+
+	return ls, nil
 }

@@ -18,19 +18,19 @@ var shellCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		user, name := parseShellTarget(args[0])
 
-		sess, store, err := buildLocalSession(name)
+		ls, err := buildLocalSession(name)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = store.Close() }()
+		defer ls.Close()
 
 		if user != "" {
-			sess.Username = user
+			ls.Session.Username = user
 		}
 
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 
-		exitCode := sess.RunAndCleanup(context.Background())
+		exitCode := ls.Session.RunAndCleanup(context.Background())
 		if exitCode != 0 {
 			os.Exit(exitCode)
 		}

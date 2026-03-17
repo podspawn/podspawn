@@ -20,20 +20,20 @@ var createCmd = &cobra.Command{
 		name := args[0]
 		image, _ := cmd.Flags().GetString("image")
 
-		sess, store, err := buildLocalSession(name)
+		ls, err := buildLocalSession(name)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = store.Close() }()
+		defer ls.Close()
 
 		if image != "" {
-			sess.Image = image
+			ls.Session.Image = image
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		containerName, err := sess.Ensure(ctx)
+		containerName, err := ls.Session.Ensure(ctx)
 		if err != nil {
 			return fmt.Errorf("creating machine %q: %w", name, err)
 		}
