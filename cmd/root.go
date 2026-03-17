@@ -27,29 +27,36 @@ var configOptionalCommands = map[string]bool{
 
 var localModeCommands = map[string]bool{
 	"create": true, "run": true, "shell": true,
+	"list": true, "stop": true,
 }
 
 var rootCmd = &cobra.Command{
 	Use:   "podspawn",
-	Short: "Ephemeral SSH dev containers via native sshd",
-	Long:  "Podspawn spawns ephemeral Docker containers on SSH connection, using the host's native sshd. No custom SSH server, no daemon, just containers.",
+	Short: "Ephemeral dev containers, locally or over SSH",
+	Long:  "Podspawn creates ephemeral Docker containers. Locally via create/run/shell, or remotely via SSH hooking into native sshd.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
-		loaded, err := config.Load(configPath)
-		if err != nil {
-			if configOptionalCommands[cmd.Name()] || !cmd.HasParent() {
-				if localModeCommands[cmd.Name()] {
-					loaded = config.LocalDefaults()
-					loadLocalOverrides(loaded)
-					isLocalMode = true
-				} else {
+
+		// Detect local mode: server config doesn't exist and command supports local mode
+		serverConfigExists := fileExists(configPath)
+
+		if !serverConfigExists && localModeCommands[cmd.Name()] {
+			isLocalMode = true
+			loaded := config.LocalDefaults()
+			loadLocalOverrides(loaded)
+			cfg = loaded
+		} else {
+			loaded, err := config.Load(configPath)
+			if err != nil {
+				if configOptionalCommands[cmd.Name()] || !cmd.HasParent() {
+					slog.Warn("config load failed, using defaults", "path", configPath, "error", err)
 					loaded = config.Defaults()
+				} else {
+					return err
 				}
-			} else {
-				return err
 			}
+			cfg = loaded
 		}
-		cfg = loaded
 
 		logPath, _ := cmd.Flags().GetString("log-file")
 		if logPath == "" {
@@ -72,6 +79,11 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().String("config", "/etc/podspawn/config.yaml", "config file path")
 	rootCmd.PersistentFlags().String("log-file", "", "log to file instead of stderr")
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func loadLocalOverrides(cfg *config.Config) {

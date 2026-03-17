@@ -19,22 +19,22 @@ var runCmd = &cobra.Command{
 		name := args[0]
 		image, _ := cmd.Flags().GetString("image")
 
-		sess, store, err := buildLocalSession(name)
+		ls, err := buildLocalSession(name)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = store.Close() }()
+		defer ls.Close()
 
 		if image != "" {
-			sess.Image = image
+			ls.Session.Image = image
 		}
 
-		sess.Mode = "destroy-on-disconnect"
-		sess.GracePeriod = 0
+		ls.Session.Mode = "destroy-on-disconnect"
+		ls.Session.GracePeriod = 0
 
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 
-		exitCode := sess.RunAndCleanup(context.Background())
+		exitCode := ls.Session.RunAndCleanup(context.Background())
 		if exitCode != 0 {
 			os.Exit(exitCode)
 		}
