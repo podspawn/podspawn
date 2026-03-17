@@ -9,12 +9,7 @@ INSTALL_DIR="/usr/local/bin"
 
 # Colors (disabled if not a terminal)
 if [ -t 1 ] 2>/dev/null || [ -e /dev/tty ]; then
-    B='\033[1m'
-    D='\033[2m'
-    G='\033[32m'
-    Y='\033[33m'
-    C='\033[36m'
-    R='\033[0m'
+    B='\033[1m' D='\033[2m' G='\033[32m' Y='\033[33m' C='\033[36m' R='\033[0m'
 else
     B='' D='' G='' Y='' C='' R=''
 fi
@@ -22,24 +17,20 @@ fi
 info()  { printf "  ${C}::${R} %s\n" "$1"; }
 ok()    { printf "  ${G}ok${R} %s\n" "$1"; }
 warn()  { printf "  ${Y}!!${R} %s\n" "$1"; }
-fail()  { printf "  ${Y}FAIL${R} %s\n" "$1"; }
 step()  { printf "\n  ${B}[%s]${R} %s\n" "$1" "$2"; }
 
-# Read from terminal even when piped through curl
 HAS_TTY=0
 [ -e /dev/tty ] && HAS_TTY=1
 
 ask() {
-    if [ "$HAS_TTY" = "0" ]; then
-        echo ""
-        return
-    fi
+    if [ "$HAS_TTY" = "0" ]; then echo ""; return; fi
     printf "  %s " "$1" >/dev/tty
     read -r REPLY </dev/tty
     echo "$REPLY"
 }
 
 ask_choice() {
+    if [ "$HAS_TTY" = "0" ]; then echo ""; return; fi
     printf "%s" "$1" >/dev/tty
     read -r REPLY </dev/tty
     echo "$REPLY"
@@ -51,23 +42,16 @@ ARCH=$(uname -m)
 case "$ARCH" in
     x86_64|amd64) ARCH="amd64" ;;
     aarch64|arm64) ARCH="arm64" ;;
-    *) fail "unsupported architecture: $ARCH"; exit 1 ;;
+    *) printf "  unsupported architecture: %s\n" "$ARCH" >&2; exit 1 ;;
 esac
 
 printf "\n"
 printf "  ${B}podspawn${R} ${D}-- ephemeral SSH dev containers${R}\n"
 
-# --- Auto-detect mode ---
-MODE="client"
-if [ -f /etc/ssh/sshd_config ] && command -v docker >/dev/null 2>&1; then
-    MODE="server"
-    info "detected server (sshd + Docker found)"
-else
-    info "detected client"
-fi
-
-# --- Step 1: Install binary ---
-step "1/$([ "$MODE" = "server" ] && echo 5 || echo 2)" "Installing podspawn"
+# ========================================
+# STEP 1: Install binary
+# ========================================
+step "1" "Installing podspawn"
 
 if command -v podspawn >/dev/null 2>&1; then
     CURRENT=$(podspawn version 2>/dev/null | head -1 || echo "unknown")
@@ -75,22 +59,18 @@ if command -v podspawn >/dev/null 2>&1; then
 else
     FETCH="curl"
     if ! command -v curl >/dev/null 2>&1; then
-        if command -v wget >/dev/null 2>&1; then
-            FETCH="wget"
-        else
-            fail "curl or wget required"; exit 1
-        fi
+        if command -v wget >/dev/null 2>&1; then FETCH="wget"
+        else printf "  curl or wget required\n" >&2; exit 1; fi
     fi
 
     if [ "$FETCH" = "curl" ]; then
-        VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | cut -d'"' -f4)
+        VERSION=$(curl -sSfL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | cut -d'"' -f4)
     else
         VERSION=$(wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | cut -d'"' -f4)
     fi
 
     if [ -z "${VERSION:-}" ]; then
-        fail "could not determine latest version; check your internet connection"
-        exit 1
+        printf "  could not determine latest version\n" >&2; exit 1
     fi
 
     FILENAME="podspawn_${VERSION#v}_${OS}_${ARCH}.tar.gz"
@@ -117,7 +97,7 @@ else
                 ACTUAL=$(shasum -a 256 "$TMPDIR/podspawn.tar.gz" | awk '{print $1}')
             fi
             if [ -n "${ACTUAL:-}" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
-                fail "checksum mismatch! aborting"; exit 1
+                printf "  checksum mismatch!\n" >&2; exit 1
             fi
             info "checksum verified"
         fi
@@ -136,12 +116,31 @@ else
 fi
 
 # ========================================
-# SERVER MODE
+# STEP 2: Choose mode
 # ========================================
-if [ "$MODE" = "server" ]; then
+printf "\n"
+printf "  How do you want to use podspawn?\n"
+printf "    ${B}1${R}) ${G}Local${R}    -- containers on this machine ${D}(try it out)${R}\n"
+printf "    ${B}2${R}) Server   -- host containers for a team\n"
+printf "    ${B}3${R}) Client   -- connect to a remote server\n"
+printf "\n"
 
-    # --- Step 2: Configure sshd ---
-    step "2/5" "Configuring sshd"
+MODE=$(ask_choice "  Choice [1-3]: ")
+
+case "$MODE" in
+    1) MODE="local" ;;
+    2) MODE="server" ;;
+    3) MODE="client" ;;
+    *) warn "invalid choice, defaulting to local"; MODE="local" ;;
+esac
+
+# ========================================
+# LOCAL MODE -- server + client, zero prompts
+# ========================================
+if [ "$MODE" = "local" ]; then
+    USERNAME=$(whoami)
+
+    step "2" "Configuring sshd"
     if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
         ok "already configured"
     else
@@ -150,10 +149,69 @@ if [ "$MODE" = "server" ]; then
         ok "sshd configured"
     fi
 
-    # --- Step 3: SSH key setup ---
-    step "3/5" "Setting up your user"
+    step "3" "Registering your SSH key"
+    if [ -f "/etc/podspawn/keys/$USERNAME" ]; then
+        ok "user $USERNAME already registered"
+    else
+        KEY_PATH="$HOME/.ssh/id_ed25519"
+        if [ -f "${KEY_PATH}.pub" ]; then
+            info "using existing key ${KEY_PATH}.pub"
+        else
+            info "generating ed25519 key at $KEY_PATH"
+            mkdir -p "$HOME/.ssh"
+            chmod 700 "$HOME/.ssh"
+            ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q </dev/tty 2>/dev/null || ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
+            ok "key generated"
+        fi
+        sudo podspawn add-user "$USERNAME" --key-file "${KEY_PATH}.pub"
+        ok "registered $USERNAME"
+    fi
+
+    step "4" "Configuring SSH client"
+    if grep -qi "Host \*.pod" "$HOME/.ssh/config" 2>/dev/null; then
+        ok "~/.ssh/config already has *.pod block"
+    else
+        podspawn setup 2>/dev/null
+        ok "added *.pod block"
+    fi
+
+    step "5" "Diagnostics"
+    sudo podspawn doctor 2>/dev/null || true
+
+    # Enable cleanup
+    if command -v systemctl >/dev/null 2>&1; then
+        if [ -f /etc/systemd/system/podspawn-cleanup.timer ]; then
+            sudo systemctl enable --now podspawn-cleanup.timer 2>/dev/null || true
+        fi
+    fi
+
+    printf "\n"
+    printf "  ${B}${G}Ready.${R} Try it:\n"
+    printf "\n"
+    printf "    ${C}ssh %s@localhost${R}\n" "$USERNAME"
+    printf "    ${C}ssh %s@localhost.pod${R}\n" "$USERNAME"
+    printf "    ${C}podspawn ssh %s@localhost${R}\n" "$USERNAME"
+    printf "\n"
+    printf "  Docs: ${C}https://podspawn.dev${R}\n"
+    printf "\n"
+fi
+
+# ========================================
+# SERVER MODE -- full setup with key choice
+# ========================================
+if [ "$MODE" = "server" ]; then
     USERNAME=$(whoami)
 
+    step "2" "Configuring sshd"
+    if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
+        ok "already configured"
+    else
+        info "running server-setup (requires sudo)"
+        sudo podspawn server-setup
+        ok "sshd configured"
+    fi
+
+    step "3" "Setting up your user"
     if [ -f "/etc/podspawn/keys/$USERNAME" ]; then
         ok "user $USERNAME already registered"
     else
@@ -161,14 +219,12 @@ if [ "$MODE" = "server" ]; then
         printf "  How do you want to register SSH keys?\n"
         printf "    ${B}1${R}) Import from GitHub\n"
 
-        HAS_ED25519=""
-        HAS_RSA=""
-        [ -f "$HOME/.ssh/id_ed25519.pub" ] && HAS_ED25519="1"
-        [ -f "$HOME/.ssh/id_rsa.pub" ] && HAS_RSA="1"
-
-        if [ -n "$HAS_ED25519" ]; then
+        HAS_KEY=""
+        if [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+            HAS_KEY="$HOME/.ssh/id_ed25519.pub"
             printf "    ${B}2${R}) Use existing key (~/.ssh/id_ed25519.pub)\n"
-        elif [ -n "$HAS_RSA" ]; then
+        elif [ -f "$HOME/.ssh/id_rsa.pub" ]; then
+            HAS_KEY="$HOME/.ssh/id_rsa.pub"
             printf "    ${B}2${R}) Use existing key (~/.ssh/id_rsa.pub)\n"
         else
             printf "    ${D}2) No existing key found${R}\n"
@@ -183,58 +239,42 @@ if [ "$MODE" = "server" ]; then
         case "$CHOICE" in
             1)
                 GH_USER=$(ask "GitHub username:")
-                if [ -z "$GH_USER" ]; then
-                    warn "skipped key registration"
-                else
+                if [ -n "$GH_USER" ]; then
                     sudo podspawn add-user "$USERNAME" --github "$GH_USER"
                     ok "registered with GitHub keys"
-                fi
+                else warn "skipped"; fi
                 ;;
             2)
-                if [ -n "$HAS_ED25519" ]; then
-                    sudo podspawn add-user "$USERNAME" --key-file "$HOME/.ssh/id_ed25519.pub"
-                    ok "registered with ed25519 key"
-                elif [ -n "$HAS_RSA" ]; then
-                    sudo podspawn add-user "$USERNAME" --key-file "$HOME/.ssh/id_rsa.pub"
-                    ok "registered with RSA key"
-                else
-                    warn "no existing key found; choose option 1 or 3"
-                fi
+                if [ -n "$HAS_KEY" ]; then
+                    sudo podspawn add-user "$USERNAME" --key-file "$HAS_KEY"
+                    ok "registered"
+                else warn "no existing key found"; fi
                 ;;
             3)
                 KEY_PATH="$HOME/.ssh/id_ed25519"
-                if [ -f "$KEY_PATH" ]; then
-                    info "key already exists at $KEY_PATH"
-                else
-                    info "generating ed25519 key"
-                    ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q </dev/tty
-                    ok "key generated at $KEY_PATH"
+                if [ ! -f "$KEY_PATH" ]; then
+                    mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+                    ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q </dev/tty 2>/dev/null || ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -q
+                    ok "key generated"
                 fi
                 sudo podspawn add-user "$USERNAME" --key-file "${KEY_PATH}.pub"
-                ok "registered with new key"
+                ok "registered"
                 ;;
             4)
                 PUB_KEY=$(ask "Paste your public key:")
-                if [ -z "$PUB_KEY" ]; then
-                    warn "skipped key registration"
-                else
+                if [ -n "$PUB_KEY" ]; then
                     sudo podspawn add-user "$USERNAME" --key "$PUB_KEY"
-                    ok "registered with pasted key"
-                fi
+                    ok "registered"
+                else warn "skipped"; fi
                 ;;
-            *)
-                warn "invalid choice; skipping key registration"
-                printf "  Run manually: sudo podspawn add-user %s --github YOUR_GITHUB\n" "$USERNAME"
-                ;;
+            *) warn "skipped key registration" ;;
         esac
     fi
 
-    # --- Step 4: Diagnostics ---
-    step "4/5" "Diagnostics"
+    step "4" "Diagnostics"
     sudo podspawn doctor 2>/dev/null || true
 
-    # --- Step 5: Cleanup daemon ---
-    step "5/5" "Cleanup daemon"
+    step "5" "Cleanup daemon"
     if command -v systemctl >/dev/null 2>&1; then
         if systemctl is-active podspawn-cleanup.timer >/dev/null 2>&1; then
             ok "timer already running"
@@ -242,67 +282,54 @@ if [ "$MODE" = "server" ]; then
             sudo systemctl enable --now podspawn-cleanup.timer 2>/dev/null || true
             ok "timer started"
         else
-            info "no systemd unit found; run: podspawn cleanup --daemon"
+            info "run: podspawn cleanup --daemon"
         fi
     else
-        info "systemd not found; run: podspawn cleanup --daemon"
+        info "run: podspawn cleanup --daemon"
     fi
 
-    # --- Done ---
     printf "\n"
     printf "  ${B}${G}Server ready.${R}\n"
     printf "\n"
-    printf "  Test it:\n"
-    printf "    ${C}ssh %s@localhost${R}\n" "$USERNAME"
-    printf "    ${C}ssh %s@localhost.pod${R}  ${D}(.pod namespace)${R}\n" "$USERNAME"
-    printf "\n"
-    printf "  Commands:\n"
-    printf "    ${C}podspawn status${R}        system health\n"
-    printf "    ${C}podspawn list${R}          active sessions\n"
-    printf "    ${C}podspawn list-users${R}    registered users\n"
-    printf "    ${C}podspawn doctor${R}        diagnostics\n"
-    printf "\n"
-    printf "  Docs: ${C}https://podspawn.dev${R}\n"
+    printf "  Test:     ${C}ssh %s@localhost${R}\n" "$USERNAME"
+    printf "  Status:   ${C}podspawn status${R}\n"
+    printf "  Sessions: ${C}podspawn list${R}\n"
+    printf "  Docs:     ${C}https://podspawn.dev${R}\n"
     printf "\n"
 fi
 
 # ========================================
-# CLIENT MODE
+# CLIENT MODE -- connect to remote server
 # ========================================
 if [ "$MODE" = "client" ]; then
 
-    step "2/2" "Configuring SSH client"
-
+    step "2" "Configuring SSH client"
     if grep -qi "Host \*.pod" "$HOME/.ssh/config" 2>/dev/null; then
         ok "~/.ssh/config already has *.pod block"
     else
-        podspawn setup
-        ok "added *.pod block to ~/.ssh/config"
+        podspawn setup 2>/dev/null
+        ok "added *.pod block"
     fi
 
-    # Ask for default server
-    SERVER=$(ask "Default server (e.g., devbox.company.com, or Enter to skip):")
+    SERVER=$(ask "Server hostname (e.g., devbox.company.com):")
     if [ -n "$SERVER" ]; then
         mkdir -p "$HOME/.podspawn"
         cat > "$HOME/.podspawn/config.yaml" <<YAML
 servers:
   default: ${SERVER}
 YAML
-        ok "wrote ~/.podspawn/config.yaml"
+        ok "default server: $SERVER"
     fi
 
     printf "\n"
     printf "  ${B}${G}Client ready.${R}\n"
     printf "\n"
     if [ -n "${SERVER:-}" ]; then
-        printf "  Connect:\n"
-        printf "    ${C}ssh you@%s${R}     ${D}(direct)${R}\n" "$SERVER"
-        printf "    ${C}ssh you@project.pod${R}   ${D}(.pod namespace)${R}\n"
+        printf "  Connect:  ${C}ssh you@%s${R}\n" "$SERVER"
+        printf "  Or:       ${C}ssh you@project.pod${R}\n"
     else
-        printf "  Connect:\n"
-        printf "    ${C}ssh you@yourserver.com${R}\n"
+        printf "  Connect:  ${C}ssh you@yourserver.com${R}\n"
     fi
-    printf "\n"
-    printf "  Docs: ${C}https://podspawn.dev${R}\n"
+    printf "  Docs:     ${C}https://podspawn.dev${R}\n"
     printf "\n"
 fi
