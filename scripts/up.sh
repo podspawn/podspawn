@@ -135,6 +135,80 @@ case "$MODE" in
 esac
 
 # ========================================
+# Prerequisites (local + server modes)
+# ========================================
+if [ "$MODE" = "local" ] || [ "$MODE" = "server" ]; then
+    MISSING=""
+
+    if ! command -v sshd >/dev/null 2>&1 && ! [ -x /usr/sbin/sshd ]; then
+        MISSING="sshd"
+    fi
+    if ! command -v docker >/dev/null 2>&1; then
+        if [ -n "$MISSING" ]; then MISSING="$MISSING + docker"; else MISSING="docker"; fi
+    fi
+
+    if [ -n "$MISSING" ]; then
+        step "!" "Missing: $MISSING"
+
+        # Detect package manager and install
+        if command -v apt-get >/dev/null 2>&1; then
+            PKGS=""
+            if echo "$MISSING" | grep -q "sshd"; then PKGS="openssh-server"; fi
+            if echo "$MISSING" | grep -q "docker"; then
+                if [ -n "$PKGS" ]; then PKGS="$PKGS docker.io"; else PKGS="docker.io"; fi
+            fi
+            info "installing $PKGS (requires sudo)"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq $PKGS
+            # Start services
+            if echo "$MISSING" | grep -q "sshd"; then
+                sudo systemctl enable --now ssh 2>/dev/null || sudo service ssh start 2>/dev/null || true
+            fi
+            if echo "$MISSING" | grep -q "docker"; then
+                sudo systemctl enable --now docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+            fi
+            ok "prerequisites installed"
+        elif command -v dnf >/dev/null 2>&1; then
+            PKGS=""
+            if echo "$MISSING" | grep -q "sshd"; then PKGS="openssh-server"; fi
+            if echo "$MISSING" | grep -q "docker"; then
+                if [ -n "$PKGS" ]; then PKGS="$PKGS docker"; else PKGS="docker"; fi
+            fi
+            info "installing $PKGS (requires sudo)"
+            sudo dnf install -y -q $PKGS
+            if echo "$MISSING" | grep -q "sshd"; then
+                sudo systemctl enable --now sshd 2>/dev/null || true
+            fi
+            if echo "$MISSING" | grep -q "docker"; then
+                sudo systemctl enable --now docker 2>/dev/null || true
+            fi
+            ok "prerequisites installed"
+        elif command -v apk >/dev/null 2>&1; then
+            PKGS=""
+            if echo "$MISSING" | grep -q "sshd"; then PKGS="openssh-server"; fi
+            if echo "$MISSING" | grep -q "docker"; then
+                if [ -n "$PKGS" ]; then PKGS="$PKGS docker"; else PKGS="docker"; fi
+            fi
+            info "installing $PKGS (requires sudo)"
+            sudo apk add --no-cache $PKGS
+            if echo "$MISSING" | grep -q "sshd"; then
+                sudo rc-update add sshd 2>/dev/null; sudo rc-service sshd start 2>/dev/null || true
+            fi
+            if echo "$MISSING" | grep -q "docker"; then
+                sudo rc-update add docker 2>/dev/null; sudo rc-service docker start 2>/dev/null || true
+            fi
+            ok "prerequisites installed"
+        else
+            warn "could not auto-install prerequisites"
+            printf "  Install manually:\n"
+            if echo "$MISSING" | grep -q "sshd"; then printf "    openssh-server\n"; fi
+            if echo "$MISSING" | grep -q "docker"; then printf "    docker\n"; fi
+            exit 1
+        fi
+    fi
+fi
+
+# ========================================
 # LOCAL MODE -- server + client, zero prompts
 # ========================================
 if [ "$MODE" = "local" ]; then
