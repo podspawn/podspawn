@@ -8,8 +8,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+var osName = runtime.GOOS
 
 type Paths struct {
 	SSHDConfig   string
@@ -75,11 +78,7 @@ func Run(paths Paths, cmd Commander, opts Options, out io.Writer) (retErr error)
 	if opts.DryRun {
 		fmt.Fprintln(out, "[dry-run] would create directories:", paths.PodspawnDir, paths.KeyDir, paths.StateDir, paths.LockDir) //nolint:errcheck
 		fmt.Fprintln(out, "[dry-run] would create", paths.EmergencyKey, "(if missing)")                                          //nolint:errcheck
-		svc := opts.ServiceName
-		if svc == "" {
-			svc = "<auto-detected>"
-		}
-		fmt.Fprintf(out, "[dry-run] would reload SSH service (%s)\n", svc) //nolint:errcheck
+		fmt.Fprintf(out, "[dry-run] would reload sshd (%s)\n", reloadHint(opts.ServiceName))                                     //nolint:errcheck
 		return nil
 	}
 
@@ -88,14 +87,11 @@ func Run(paths Paths, cmd Commander, opts Options, out io.Writer) (retErr error)
 	}
 
 	if !alreadyConfigured {
-		svcName := opts.ServiceName
-		if svcName == "" {
-			svcName = detectSSHService(cmd)
+		if err := reloadSSHD(cmd, opts.ServiceName); err != nil {
+			hint := reloadHint(opts.ServiceName)
+			return fmt.Errorf("failed to reload sshd (config is valid, reload manually with: %s): %w", hint, err)
 		}
-		if err := cmd.Run("systemctl", "reload", svcName); err != nil {
-			return fmt.Errorf("failed to reload %s (config is valid, reload manually with: systemctl reload %s): %w", svcName, svcName, err)
-		}
-		fmt.Fprintf(out, "reloaded %s\n", svcName) //nolint:errcheck
+		fmt.Fprintln(out, "reloaded sshd") //nolint:errcheck
 	}
 
 	fmt.Fprintln(out, "server-setup complete") //nolint:errcheck
@@ -232,6 +228,28 @@ func checkSafety(data []byte) []string {
 	}
 
 	return warnings
+}
+
+func reloadSSHD(cmd Commander, serviceOverride string) error {
+	if osName == "darwin" {
+		return cmd.Run("launchctl", "kickstart", "-k", "system/com.openssh.sshd")
+	}
+	svc := serviceOverride
+	if svc == "" {
+		svc = detectSSHService(cmd)
+	}
+	return cmd.Run("systemctl", "reload", svc)
+}
+
+func reloadHint(serviceOverride string) string {
+	if osName == "darwin" {
+		return "launchctl kickstart -k system/com.openssh.sshd"
+	}
+	svc := serviceOverride
+	if svc == "" {
+		svc = "sshd"
+	}
+	return "systemctl reload " + svc
 }
 
 func detectSSHService(cmd Commander) string {
