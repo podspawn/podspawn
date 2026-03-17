@@ -28,7 +28,7 @@ var configOptionalCommands = map[string]bool{
 
 var localModeCommands = map[string]bool{
 	"create": true, "run": true, "shell": true,
-	"list": true, "stop": true,
+	"list": true, "stop": true, "doctor": true,
 }
 
 var rootCmd = &cobra.Command{

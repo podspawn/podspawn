@@ -490,8 +490,8 @@ YAML
                         printf "    image: redis:7\n"
                     fi
                 fi
-            } > "$HOME/.podspawn/default.podfile.yaml"
-            ok "created ~/.podspawn/default.podfile.yaml"
+            } > "$HOME/.podspawn/podfile.yaml"
+            ok "created ~/.podspawn/podfile.yaml"
         fi
     else
         ok "config exists"

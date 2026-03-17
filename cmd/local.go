@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/audit"
@@ -74,6 +75,20 @@ func buildLocalSession(name string) (*localSession, error) {
 			slog.Warn("failed to load projects", "error", loadErr)
 		} else if p, ok := projects[name]; ok {
 			sess.Project = &p
+		}
+	}
+
+	// If no project found, check for default Podfile from onboarding wizard
+	if sess.Project == nil {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			podspawnDir := filepath.Join(home, ".podspawn")
+			podfilePath := filepath.Join(podspawnDir, "podfile.yaml")
+			if _, statErr := os.Stat(podfilePath); statErr == nil {
+				sess.Project = &config.ProjectConfig{
+					LocalPath: podspawnDir,
+				}
+			}
 		}
 	}
 
