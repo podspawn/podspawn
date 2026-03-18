@@ -165,7 +165,7 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, error) {
 	containerName := s.containerName()
 
-	unlock, err := lock.Acquire(s.LockDir, s.Username)
+	unlock, err := lock.Acquire(ctx, s.LockDir, s.Username)
 	if err != nil {
 		return "", false, fmt.Errorf("acquiring lock: %w", err)
 	}
@@ -671,7 +671,7 @@ func (s *Session) Disconnect(ctx context.Context) {
 		return
 	}
 
-	unlock, err := lock.Acquire(s.LockDir, s.Username)
+	unlock, err := lock.Acquire(ctx, s.LockDir, s.Username)
 	if err != nil {
 		slog.Error("disconnect: failed to acquire lock", "user", s.Username, "error", err)
 		return

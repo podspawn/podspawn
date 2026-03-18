@@ -1010,6 +1010,69 @@ func TestFakeStoreListSessionsByUser(t *testing.T) {
 	}
 }
 
+func TestSchemaVersionSingleRow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "dup-version.db")
+
+	// Simulate the old schema_version table (no primary key, no unique constraint)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Insert duplicate rows, as could happen with concurrent Opens or interrupted migrations
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (2)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	// Open with the real migration; should resolve duplicates
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open with duplicate schema_version rows: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	// Verify exactly one row in schema_version
+	var count int
+	err = store.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("schema_version row count = %d, want 1", count)
+	}
+
+	var version int
+	err = store.db.QueryRow(`SELECT version FROM schema_version`).Scan(&version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("schema_version = %d, want %d", version, schemaVersion)
+	}
+}
+
+func TestSchemaVersionNewDB(t *testing.T) {
+	store := openTestDB(t)
+
+	var count int
+	err := store.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("new db schema_version row count = %d, want 1", count)
+	}
+}
+
 func TestFakeStoreClose(t *testing.T) {
 	fs := NewFakeStore()
 	if err := fs.Close(); err != nil {

@@ -9,3 +9,7 @@ import "fmt"
 func Acquire(lockDir, username string) (unlock func(), err error) {
 	return nil, fmt.Errorf("session locking not supported on Windows")
 }
+
+func Remove(lockDir, username string) error {
+	return nil
+}

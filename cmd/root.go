@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -38,7 +41,12 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
 
-		if !fileExists(configPath) && localModeCommands[cmd.Name()] {
+		configExists, statErr := fileExists(configPath)
+		if statErr != nil {
+			return fmt.Errorf("checking config %s: %w", configPath, statErr)
+		}
+
+		if !configExists && localModeCommands[cmd.Name()] {
 			isLocalMode = true
 			loaded := config.LocalDefaults()
 			loadLocalOverrides(loaded)
@@ -83,9 +91,15 @@ func init() {
 	rootCmd.PersistentFlags().String("log-file", "", "log to file instead of stderr")
 }
 
-func fileExists(path string) bool {
+func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
 }
 
 func loadLocalOverrides(cfg *config.Config) {
