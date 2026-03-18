@@ -57,25 +57,26 @@ func (s *Session) setupContainerUser(ctx context.Context, containerID string) er
 	}
 
 	script := fmt.Sprintf(`
-set -e
 if id -u %s >/dev/null 2>&1; then exit 0; fi
-# Alpine: install shadow + sudo for useradd/sudo support
-if command -v apk >/dev/null 2>&1; then apk add --no-cache shadow sudo >/dev/null 2>&1; fi
-# Install sudo on Debian/Ubuntu if missing
-if ! command -v sudo >/dev/null 2>&1; then
-  if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq sudo >/dev/null 2>&1; fi
-  if command -v dnf >/dev/null 2>&1; then dnf install -y -q sudo >/dev/null 2>&1; fi
-fi
-# Handle UID 1000 conflict (e.g., ubuntu:24.04 ships a 'ubuntu' user at 1000)
 EXISTING=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
 if [ -n "$EXISTING" ] && [ "$EXISTING" != "%s" ]; then
   userdel "$EXISTING" 2>/dev/null || true
 fi
-groupadd --gid 1000 %s 2>/dev/null || true
-useradd --uid 1000 --gid 1000 -m -s %s %s
+if command -v useradd >/dev/null 2>&1; then
+  groupadd --gid 1000 %s 2>/dev/null || true
+  useradd --uid 1000 --gid 1000 -m -s %s %s
+else
+  echo '%s:x:1000:1000::/home/%s:%s' >> /etc/passwd
+  echo '%s:x:1000:' >> /etc/group
+  mkdir -p /home/%s && chown 1000:1000 /home/%s
+fi
+mkdir -p /etc/sudoers.d
 echo '%s ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/%s
 chmod 0440 /etc/sudoers.d/%s
-`, s.Username, s.Username, s.Username, shell, s.Username, s.Username, s.Username, s.Username)
+`, s.Username, s.Username,
+		s.Username, shell, s.Username,
+		s.Username, s.Username, shell, s.Username, s.Username, s.Username,
+		s.Username, s.Username, s.Username)
 
 	exitCode, err := s.Runtime.Exec(ctx, containerID, runtime.ExecOpts{
 		Cmd: []string{"sh", "-c", script},
@@ -240,7 +241,9 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	}
 
 	if err := s.setupContainerUser(ctx, id); err != nil {
-		slog.Warn("failed to create container user, falling back to root", "error", err)
+		_ = s.Runtime.RemoveContainer(ctx, containerName)
+		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
+		return "", false, fmt.Errorf("setting up container user: %w", err)
 	}
 
 	now := time.Now().UTC()
@@ -301,7 +304,7 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 			return 1, err
 		}
 		if err := s.setupContainerUser(ctx, containerName); err != nil {
-			slog.Warn("failed to create container user, falling back to root", "error", err)
+			return 1, fmt.Errorf("setting up container user: %w", err)
 		}
 	} else {
 		slog.Info("reattaching to container", "name", containerName)

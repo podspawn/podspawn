@@ -23,6 +23,18 @@ func Generate(pf *Podfile) (string, error) {
 		return "", err
 	}
 
+	// Every Podfile-built image gets sudo so the non-root container user can elevate
+	hasSudo := false
+	for _, p := range aptPkgs {
+		if p == "sudo" {
+			hasSudo = true
+			break
+		}
+	}
+	if !hasSudo {
+		aptPkgs = append(aptPkgs, "sudo")
+	}
+
 	needsBash := len(specialRuns) > 0
 	if needsBash {
 		b.WriteString("\nSHELL [\"/bin/bash\", \"-euo\", \"pipefail\", \"-c\"]\n")
