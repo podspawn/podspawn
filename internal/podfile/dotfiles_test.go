@@ -14,16 +14,24 @@ func TestCloneDotfiles(t *testing.T) {
 	cfg := &DotfilesConfig{
 		Repo: "https://github.com/user/dots",
 	}
-	err := CloneDotfiles(context.Background(), rt, "dev-ctr", cfg)
+	err := CloneDotfiles(context.Background(), rt, "dev-ctr", "deploy", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rt.ExecCalls) != 1 {
 		t.Fatalf("expected 1 exec call, got %d", len(rt.ExecCalls))
 	}
-	cmd := rt.ExecCalls[0].Opts.Cmd
-	if cmd[0] != "git" || cmd[1] != "clone" {
-		t.Errorf("expected git clone, got %v", cmd)
+	call := rt.ExecCalls[0]
+	if call.Opts.Cmd[0] != "git" || call.Opts.Cmd[1] != "clone" {
+		t.Errorf("expected git clone, got %v", call.Opts.Cmd)
+	}
+	if call.Opts.User != "deploy" {
+		t.Errorf("exec user = %q, want deploy", call.Opts.User)
+	}
+	// Should clone to /home/deploy/dotfiles, not /root/dotfiles
+	cloneDest := call.Opts.Cmd[len(call.Opts.Cmd)-1]
+	if cloneDest != "/home/deploy/dotfiles" {
+		t.Errorf("clone dest = %q, want /home/deploy/dotfiles", cloneDest)
 	}
 }
 
@@ -35,12 +43,18 @@ func TestCloneDotfilesWithInstall(t *testing.T) {
 		Repo:    "https://github.com/user/dots",
 		Install: "./install.sh",
 	}
-	err := CloneDotfiles(context.Background(), rt, "dev-ctr", cfg)
+	err := CloneDotfiles(context.Background(), rt, "dev-ctr", "deploy", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rt.ExecCalls) != 2 {
 		t.Fatalf("expected 2 exec calls (clone + install), got %d", len(rt.ExecCalls))
+	}
+	// Both should run as the user
+	for i, call := range rt.ExecCalls {
+		if call.Opts.User != "deploy" {
+			t.Errorf("exec %d user = %q, want deploy", i, call.Opts.User)
+		}
 	}
 }
 
@@ -53,29 +67,31 @@ func TestCloneRepoInContainer(t *testing.T) {
 		Path:   "/workspace/backend",
 		Branch: "develop",
 	}
-	err := CloneRepoInContainer(context.Background(), rt, "dev-ctr", repo)
+	err := CloneRepoInContainer(context.Background(), rt, "dev-ctr", "deploy", repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rt.ExecCalls) != 1 {
 		t.Fatalf("expected 1 exec call, got %d", len(rt.ExecCalls))
 	}
-	cmd := rt.ExecCalls[0].Opts.Cmd
-	// Should include --branch develop
+	call := rt.ExecCalls[0]
+	if call.Opts.User != "deploy" {
+		t.Errorf("exec user = %q, want deploy", call.Opts.User)
+	}
 	found := false
-	for i, arg := range cmd {
-		if arg == "--branch" && i+1 < len(cmd) && cmd[i+1] == "develop" {
+	for i, arg := range call.Opts.Cmd {
+		if arg == "--branch" && i+1 < len(call.Opts.Cmd) && call.Opts.Cmd[i+1] == "develop" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected --branch develop in %v", cmd)
+		t.Errorf("expected --branch develop in %v", call.Opts.Cmd)
 	}
 }
 
 func TestRunHookEmpty(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
-	RunHook(context.Background(), rt, "dev-ctr", "on_create", "")
+	RunHook(context.Background(), rt, "dev-ctr", "deploy", "on_create", "")
 	if len(rt.ExecCalls) != 0 {
 		t.Error("empty hook should not exec")
 	}
@@ -85,12 +101,15 @@ func TestRunHookExecutes(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
 	rt.Containers["dev-ctr"] = true
 
-	RunHook(context.Background(), rt, "dev-ctr", "on_create", "make setup")
+	RunHook(context.Background(), rt, "dev-ctr", "deploy", "on_create", "make setup")
 	if len(rt.ExecCalls) != 1 {
 		t.Fatalf("expected 1 exec call, got %d", len(rt.ExecCalls))
 	}
-	cmd := rt.ExecCalls[0].Opts.Cmd
-	if cmd[0] != "sh" || cmd[1] != "-c" || cmd[2] != "make setup" {
-		t.Errorf("unexpected command: %v", cmd)
+	call := rt.ExecCalls[0]
+	if call.Opts.Cmd[0] != "sh" || call.Opts.Cmd[1] != "-c" || call.Opts.Cmd[2] != "make setup" {
+		t.Errorf("unexpected command: %v", call.Opts.Cmd)
+	}
+	if call.Opts.User != "deploy" {
+		t.Errorf("hook user = %q, want deploy", call.Opts.User)
 	}
 }

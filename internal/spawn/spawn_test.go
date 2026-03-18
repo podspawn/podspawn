@@ -43,11 +43,11 @@ func TestRunCreatesContainerWhenMissing(t *testing.T) {
 		t.Fatal("expected container podspawn-deploy to be created")
 	}
 
-	if len(fake.ExecCalls) != 1 {
-		t.Fatalf("expected 1 exec call, got %d", len(fake.ExecCalls))
+	if len(fake.ExecCalls) != 2 {
+		t.Fatalf("expected 2 exec calls (user setup + command), got %d", len(fake.ExecCalls))
 	}
 
-	call := fake.ExecCalls[0]
+	call := fake.ExecCalls[1]
 	if call.ContainerID != "podspawn-deploy" {
 		t.Errorf("exec on wrong container: %s", call.ContainerID)
 	}
@@ -56,6 +56,12 @@ func TestRunCreatesContainerWhenMissing(t *testing.T) {
 	}
 	if call.Opts.Cmd[0] != "sh" || call.Opts.Cmd[1] != "-c" || call.Opts.Cmd[2] != "echo hello" {
 		t.Errorf("unexpected command: %v", call.Opts.Cmd)
+	}
+	if call.Opts.User != "deploy" {
+		t.Errorf("exec User = %q, want deploy", call.Opts.User)
+	}
+	if call.Opts.WorkingDir != "/home/deploy" {
+		t.Errorf("exec WorkingDir = %q, want /home/deploy", call.Opts.WorkingDir)
 	}
 }
 
@@ -103,15 +109,21 @@ func TestRunInteractiveShellUsesTTY(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(fake.ExecCalls) != 1 {
-		t.Fatalf("expected 1 exec, got %d", len(fake.ExecCalls))
+	if len(fake.ExecCalls) != 2 {
+		t.Fatalf("expected 2 exec calls (user setup + shell), got %d", len(fake.ExecCalls))
 	}
-	call := fake.ExecCalls[0]
+	call := fake.ExecCalls[1]
 	if !call.Opts.TTY {
 		t.Error("interactive shell should use TTY")
 	}
 	if call.Opts.Cmd[0] != "/bin/bash" {
 		t.Errorf("expected /bin/bash, got %v", call.Opts.Cmd)
+	}
+	if call.Opts.User != "deploy" {
+		t.Errorf("exec User = %q, want deploy", call.Opts.User)
+	}
+	if call.Opts.WorkingDir != "/home/deploy" {
+		t.Errorf("exec WorkingDir = %q, want /home/deploy", call.Opts.WorkingDir)
 	}
 }
 
@@ -127,7 +139,7 @@ func TestRunInteractiveShellUsesConfiguredShell(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	call := fake.ExecCalls[0]
+	call := fake.ExecCalls[1]
 	if call.Opts.Cmd[0] != "/bin/zsh" {
 		t.Errorf("expected /bin/zsh, got %v", call.Opts.Cmd)
 	}
@@ -997,10 +1009,10 @@ func TestAgentEnvPassedToExec(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(fake.ExecCalls) != 1 {
-		t.Fatalf("expected 1 exec call, got %d", len(fake.ExecCalls))
+	if len(fake.ExecCalls) != 2 {
+		t.Fatalf("expected 2 exec calls (user setup + command), got %d", len(fake.ExecCalls))
 	}
-	execEnv := fake.ExecCalls[0].Opts.Env
+	execEnv := fake.ExecCalls[1].Opts.Env
 	found := false
 	for _, e := range execEnv {
 		if strings.HasPrefix(e, "SSH_AUTH_SOCK="+containerAgentDir+"/agent-") {
@@ -1670,9 +1682,15 @@ func TestEnsureCreatesContainerWithoutAttaching(t *testing.T) {
 		t.Errorf("status = %q, want running", got.Status)
 	}
 
-	// Should NOT have exec'd into the container
-	if len(fake.ExecCalls) != 0 {
-		t.Errorf("Ensure should not exec, got %d exec calls", len(fake.ExecCalls))
+	// Should have exactly 1 exec call: the user creation setup
+	if len(fake.ExecCalls) != 1 {
+		t.Errorf("expected 1 exec call (user setup), got %d", len(fake.ExecCalls))
+	}
+	if len(fake.ExecCalls) > 0 {
+		setupCmd := fake.ExecCalls[0].Opts.Cmd
+		if len(setupCmd) < 2 || setupCmd[0] != "sh" {
+			t.Errorf("first exec should be user creation script, got %v", setupCmd)
+		}
 	}
 }
 

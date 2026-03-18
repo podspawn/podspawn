@@ -37,12 +37,14 @@ type Mount struct {
 }
 
 type ExecOpts struct {
-	Cmd    []string
-	TTY    bool
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
-	Env    []string // per-exec environment variables
+	Cmd        []string
+	User       string // run as this user (empty = container default, i.e. root)
+	WorkingDir string // working directory (empty = container default)
+	TTY        bool
+	Stdin      io.Reader
+	Stdout     io.Writer
+	Stderr     io.Writer
+	Env        []string // per-exec environment variables
 
 	// ExecIDCallback is called with the exec ID before I/O piping
 	// starts. Spawn uses this to set up terminal resize handling

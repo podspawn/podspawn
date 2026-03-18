@@ -46,6 +46,52 @@ type Session struct {
 	pf *podfile.Podfile // cached after first parse
 }
 
+func (s *Session) userHomeDir() string {
+	return "/home/" + s.Username
+}
+
+// setupContainerUser creates a non-root user inside the container.
+// Runs as root (the container default) exactly once per new container.
+// Idempotent: skips if the user already exists.
+func (s *Session) setupContainerUser(ctx context.Context, containerID string) error {
+	shell := s.Shell
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+
+	script := fmt.Sprintf(`
+set -e
+if id -u %s >/dev/null 2>&1; then exit 0; fi
+# Alpine: install shadow + sudo for useradd/sudo support
+if command -v apk >/dev/null 2>&1; then apk add --no-cache shadow sudo >/dev/null 2>&1; fi
+# Install sudo on Debian/Ubuntu if missing
+if ! command -v sudo >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq sudo >/dev/null 2>&1; fi
+  if command -v dnf >/dev/null 2>&1; then dnf install -y -q sudo >/dev/null 2>&1; fi
+fi
+# Handle UID 1000 conflict (e.g., ubuntu:24.04 ships a 'ubuntu' user at 1000)
+EXISTING=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
+if [ -n "$EXISTING" ] && [ "$EXISTING" != "%s" ]; then
+  usermod -u 65534 "$EXISTING" 2>/dev/null || true
+fi
+groupadd --gid 1000 %s 2>/dev/null || true
+useradd --uid 1000 --gid 1000 -m -s %s %s
+echo '%s ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/%s
+chmod 0440 /etc/sudoers.d/%s
+`, s.Username, s.Username, s.Username, shell, s.Username, s.Username, s.Username, s.Username)
+
+	exitCode, err := s.Runtime.Exec(ctx, containerID, runtime.ExecOpts{
+		Cmd: []string{"sh", "-c", script},
+	})
+	if err != nil {
+		return fmt.Errorf("creating user %s in container: %w", s.Username, err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("user creation script exited %d", exitCode)
+	}
+	return nil
+}
+
 func (s *Session) agentHostDir() string {
 	return filepath.Join(os.TempDir(), "podspawn-agent-"+s.Username)
 }
@@ -193,6 +239,10 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		return "", false, err
 	}
 
+	if err := s.setupContainerUser(ctx, id); err != nil {
+		slog.Warn("failed to create container user, falling back to root", "error", err)
+	}
+
 	now := time.Now().UTC()
 	if err := s.Store.CreateSession(&state.Session{
 		User:          s.Username,
@@ -258,6 +308,9 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 		if err := s.Runtime.StartContainer(ctx, containerName); err != nil {
 			return 1, err
 		}
+		if err := s.setupContainerUser(ctx, containerName); err != nil {
+			slog.Warn("failed to create container user, falling back to root", "error", err)
+		}
 	} else {
 		slog.Info("reattaching to container", "name", containerName)
 	}
@@ -305,12 +358,14 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string, en
 	}
 
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
-		Cmd:    []string{s.Shell},
-		TTY:    true,
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Env:    env,
+		Cmd:        []string{s.Shell},
+		User:       s.Username,
+		WorkingDir: s.userHomeDir(),
+		TTY:        true,
+		Stdin:      os.Stdin,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		Env:        env,
 		ExecIDCallback: func(execID string) {
 			go handleResize(ctx, s.Runtime, execID)
 		},
@@ -324,12 +379,14 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string, en
 
 func (s *Session) execCommand(ctx context.Context, containerName, origCmd string, env []string) (int, error) {
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
-		Cmd:    []string{"sh", "-c", origCmd},
-		TTY:    false,
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Env:    env,
+		Cmd:        []string{"sh", "-c", origCmd},
+		User:       s.Username,
+		WorkingDir: s.userHomeDir(),
+		TTY:        false,
+		Stdin:      os.Stdin,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		Env:        env,
 	})
 	if err != nil {
 		return 1, err
@@ -451,19 +508,19 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 
 	if isNew {
 		if s.pf.Dotfiles != nil {
-			if err := podfile.CloneDotfiles(ctx, s.Runtime, containerName, s.pf.Dotfiles); err != nil {
+			if err := podfile.CloneDotfiles(ctx, s.Runtime, containerName, s.Username, s.pf.Dotfiles); err != nil {
 				slog.Warn("dotfiles setup failed", "error", err)
 			}
 		}
 		for _, repo := range s.pf.Repos {
-			if err := podfile.CloneRepoInContainer(ctx, s.Runtime, containerName, repo); err != nil {
+			if err := podfile.CloneRepoInContainer(ctx, s.Runtime, containerName, s.Username, repo); err != nil {
 				slog.Warn("repo clone failed", "url", repo.URL, "error", err)
 			}
 		}
-		podfile.RunHook(ctx, s.Runtime, containerName, "on_create", s.pf.OnCreate)
+		podfile.RunHook(ctx, s.Runtime, containerName, s.Username, "on_create", s.pf.OnCreate)
 	}
 
-	podfile.RunHook(ctx, s.Runtime, containerName, "on_start", s.pf.OnStart)
+	podfile.RunHook(ctx, s.Runtime, containerName, s.Username, "on_start", s.pf.OnStart)
 }
 
 func (s *Session) applyUserOverrides() {
