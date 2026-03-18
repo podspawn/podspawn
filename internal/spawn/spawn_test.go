@@ -1963,3 +1963,71 @@ func TestUserHomeDirMapping(t *testing.T) {
 		t.Errorf("home dir = %q, want /home/karthik", sess.userHomeDir())
 	}
 }
+
+func TestSetupScriptCreatesRcFileForExistingUser(t *testing.T) {
+	// Bug: if user already exists in container, `exit 0` skips rc file creation.
+	// The rc file section must run regardless of whether the user was just created.
+	fake := runtime.NewFakeRuntime()
+	sess := &Session{
+		Username: "deploy",
+		Runtime:  fake,
+		Image:    "ubuntu:24.04",
+		Shell:    "/bin/zsh",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "true")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	script := fake.ExecCalls[0].Opts.Cmd[2]
+
+	// Find positions of `exit 0` and `.zshrc` in the script
+	exitPos := strings.Index(script, "exit 0")
+	rcPos := strings.Index(script, ".zshrc")
+	if exitPos == -1 || rcPos == -1 {
+		t.Fatalf("script missing expected content: exit0=%d, zshrc=%d", exitPos, rcPos)
+	}
+	if exitPos < rcPos {
+		t.Error("rc file creation must not be after 'exit 0' guard for existing users")
+	}
+}
+
+func TestLegacyStartFailureCleansUpContainer(t *testing.T) {
+	// Bug: ensureContainerLegacy doesn't remove container when StartContainer fails.
+	fake := runtime.NewFakeRuntime()
+	fake.StartErr = fmt.Errorf("engine unavailable")
+
+	sess := testSession(fake, "deploy")
+	t.Setenv("SSH_ORIGINAL_COMMAND", "echo test")
+
+	_, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from StartContainer")
+	}
+
+	// Container was created but start failed; it should be cleaned up
+	if _, exists := fake.Containers["podspawn-deploy"]; exists {
+		t.Error("container should be removed after StartContainer failure")
+	}
+}
+
+func TestLegacyUserSetupFailureCleansUpContainer(t *testing.T) {
+	// Bug: ensureContainerLegacy doesn't remove container when setupContainerUser fails.
+	fake := runtime.NewFakeRuntime()
+	// First exec call (setupContainerUser) returns non-zero
+	fake.ExitCodes = []int{1}
+
+	sess := testSession(fake, "deploy")
+	t.Setenv("SSH_ORIGINAL_COMMAND", "echo test")
+
+	_, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from setupContainerUser")
+	}
+
+	if _, exists := fake.Containers["podspawn-deploy"]; exists {
+		t.Error("container should be removed after user setup failure")
+	}
+}

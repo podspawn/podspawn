@@ -20,6 +20,9 @@ var addProjectCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
+		if err := validateMachineName(name); err != nil {
+			return err
+		}
 		repo, _ := cmd.Flags().GetString("repo")
 		branch, _ := cmd.Flags().GetString("branch")
 

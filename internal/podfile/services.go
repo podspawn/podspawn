@@ -26,14 +26,13 @@ func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceCo
 		var mounts []runtime.Mount
 		for _, vol := range svc.Volumes {
 			parts := strings.SplitN(vol, ":", 2)
-			if len(parts) == 2 {
-				mounts = append(mounts, runtime.Mount{
-					Source: parts[0],
-					Target: parts[1],
-				})
-			} else {
-				slog.Warn("skipping malformed volume spec, expected source:target", "volume", vol, "service", svc.Name)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("malformed volume %q for service %s, expected source:target", vol, svc.Name)
 			}
+			mounts = append(mounts, runtime.Mount{
+				Source: parts[0],
+				Target: parts[1],
+			})
 		}
 
 		id, err := rt.CreateContainer(ctx, runtime.ContainerOpts{

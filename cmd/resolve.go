@@ -2,10 +2,20 @@ package cmd
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/podspawn/podspawn/internal/config"
 )
+
+var nameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
+func validateMachineName(name string) error {
+	if !nameRe.MatchString(name) {
+		return fmt.Errorf("invalid name %q: must be 1-64 chars, start with lowercase letter, contain only [a-z0-9_-]", name)
+	}
+	return nil
+}
 
 // parseUserHost splits "user@host" into its components.
 // Returns an error if the format is invalid.
