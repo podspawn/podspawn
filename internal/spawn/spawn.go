@@ -72,7 +72,7 @@ fi
 # Handle UID 1000 conflict (e.g., ubuntu:24.04 ships a 'ubuntu' user at 1000)
 EXISTING=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
 if [ -n "$EXISTING" ] && [ "$EXISTING" != "%s" ]; then
-  usermod -u 65534 "$EXISTING" 2>/dev/null || true
+  userdel "$EXISTING" 2>/dev/null || true
 fi
 groupadd --gid 1000 %s 2>/dev/null || true
 useradd --uid 1000 --gid 1000 -m -s %s %s

@@ -143,3 +143,167 @@ func TestDockerContainerLifecycle(t *testing.T) {
 		t.Fatal("container should not exist after removal")
 	}
 }
+
+func TestDockerExecAsNonRootUser(t *testing.T) {
+	rt := mustDockerRuntime(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	name := "podspawn-integ-nonroot"
+
+	t.Cleanup(func() {
+		rt.RemoveContainer(context.Background(), name) //nolint:errcheck
+	})
+
+	_, err := rt.CreateContainer(ctx, ContainerOpts{
+		Name:     name,
+		Image:    "ubuntu:24.04",
+		Hostname: "testbox",
+		Cmd:      []string{"sleep", "infinity"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.StartContainer(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run the user creation script (same as setupContainerUser)
+	userSetup := `
+set -e
+if id -u testuser >/dev/null 2>&1; then exit 0; fi
+if ! command -v sudo >/dev/null 2>&1; then
+  apt-get update -qq && apt-get install -y -qq sudo >/dev/null 2>&1
+fi
+EXISTING=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
+if [ -n "$EXISTING" ] && [ "$EXISTING" != "testuser" ]; then
+  userdel "$EXISTING" 2>/dev/null || true
+fi
+groupadd --gid 1000 testuser 2>/dev/null || true
+useradd --uid 1000 --gid 1000 -m -s /bin/bash testuser
+echo 'testuser ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/testuser
+chmod 0440 /etc/sudoers.d/testuser
+`
+	exitCode, err := rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"sh", "-c", userSetup},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("user setup exec failed: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("user setup exited %d", exitCode)
+	}
+
+	// Verify: whoami as testuser
+	var whoami bytes.Buffer
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"whoami"},
+		User:   "testuser",
+		Stdout: &whoami,
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("whoami exited %d", exitCode)
+	}
+	if got := strings.TrimSpace(whoami.String()); got != "testuser" {
+		t.Errorf("whoami = %q, want testuser", got)
+	}
+
+	// Verify: home directory exists and is owned by testuser
+	var homeStat bytes.Buffer
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"stat", "-c", "%U", "/home/testuser"},
+		User:   "testuser",
+		Stdout: &homeStat,
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("stat home dir exited %d", exitCode)
+	}
+	if got := strings.TrimSpace(homeStat.String()); got != "testuser" {
+		t.Errorf("home dir owner = %q, want testuser", got)
+	}
+
+	// Verify: user can write files in their home
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"touch", "/home/testuser/testfile"},
+		User:   "testuser",
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("touch in home dir exited %d", exitCode)
+	}
+
+	// Verify: sudo works
+	var sudoWhoami bytes.Buffer
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"sudo", "whoami"},
+		User:   "testuser",
+		Stdout: &sudoWhoami,
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("sudo whoami exited %d", exitCode)
+	}
+	if got := strings.TrimSpace(sudoWhoami.String()); got != "root" {
+		t.Errorf("sudo whoami = %q, want root", got)
+	}
+
+	// Verify: hostname is set correctly
+	var hostname bytes.Buffer
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"hostname"},
+		User:   "testuser",
+		Stdout: &hostname,
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(hostname.String()); got != "testbox" {
+		t.Errorf("hostname = %q, want testbox", got)
+	}
+
+	// Verify: WorkingDir on exec
+	var pwd bytes.Buffer
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:        []string{"pwd"},
+		User:       "testuser",
+		WorkingDir: "/home/testuser",
+		Stdout:     &pwd,
+		Stderr:     &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(pwd.String()); got != "/home/testuser" {
+		t.Errorf("pwd = %q, want /home/testuser", got)
+	}
+
+	// Verify: idempotent (running setup again doesn't fail)
+	exitCode, err = rt.Exec(ctx, name, ExecOpts{
+		Cmd:    []string{"sh", "-c", userSetup},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("second user setup failed: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("second user setup exited %d (should be idempotent)", exitCode)
+	}
+}
