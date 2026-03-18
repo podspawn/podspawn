@@ -11,7 +11,6 @@ import (
 	"github.com/podspawn/podspawn/internal/state"
 )
 
-// DestroySession removes a session's container, services, network, and DB record.
 func DestroySession(ctx context.Context, rt runtime.Runtime, store state.SessionStore, sess *state.Session) error {
 	_ = rt.RemoveContainer(ctx, sess.ContainerName)
 
@@ -31,7 +30,6 @@ func DestroySession(ctx context.Context, rt runtime.Runtime, store state.Session
 	return store.DeleteSession(sess.User, sess.Project)
 }
 
-// ExpireGracePeriods finds sessions past their grace period and destroys them.
 func ExpireGracePeriods(ctx context.Context, rt runtime.Runtime, store state.SessionStore) int {
 	sessions, err := store.ExpiredGracePeriods()
 	if err != nil {
@@ -47,7 +45,6 @@ func ExpireGracePeriods(ctx context.Context, rt runtime.Runtime, store state.Ses
 	return len(sessions)
 }
 
-// EnforceMaxLifetimes finds sessions past their max lifetime and destroys them.
 func EnforceMaxLifetimes(ctx context.Context, rt runtime.Runtime, store state.SessionStore) int {
 	sessions, err := store.ExpiredLifetimes()
 	if err != nil {
@@ -63,8 +60,6 @@ func EnforceMaxLifetimes(ctx context.Context, rt runtime.Runtime, store state.Se
 	return len(sessions)
 }
 
-// ReconcileOrphans finds Docker containers labeled managed-by=podspawn that
-// have no corresponding DB record and removes them.
 func ReconcileOrphans(ctx context.Context, rt runtime.Runtime, store state.SessionStore) int {
 	containers, err := rt.ListContainers(ctx, map[string]string{"managed-by": "podspawn"})
 	if err != nil {
@@ -81,7 +76,6 @@ func ReconcileOrphans(ctx context.Context, rt runtime.Runtime, store state.Sessi
 	tracked := make(map[string]bool)
 	for _, sess := range sessions {
 		tracked[sess.ContainerName] = true
-		// Service containers are also tracked
 		if sess.ServiceIDs != "" {
 			for _, id := range strings.Split(sess.ServiceIDs, ",") {
 				tracked[strings.TrimSpace(id)] = true
@@ -108,26 +102,21 @@ func ReconcileOrphans(ctx context.Context, rt runtime.Runtime, store state.Sessi
 	return removed
 }
 
-// RunOnce performs a single cleanup pass: expire grace periods, enforce
-// lifetimes, and reconcile orphans. Grace periods are checked first so
-// that max-lifetime enforcement doesn't double-destroy the same session.
+// Grace periods checked first so max-lifetime doesn't double-destroy.
 func RunOnce(ctx context.Context, rt runtime.Runtime, store state.SessionStore) {
 	graced := ExpireGracePeriods(ctx, rt, store)
-	expired := EnforceMaxLifetimes(ctx, rt, store) // safe: grace sessions are already deleted
+	expired := EnforceMaxLifetimes(ctx, rt, store)
 	orphans := ReconcileOrphans(ctx, rt, store)
 	if graced+expired+orphans > 0 {
 		slog.Info("cleanup pass complete", "grace_expired", graced, "lifetime_expired", expired, "orphans_removed", orphans)
 	}
 }
 
-// RunDaemon runs cleanup passes in a loop at the given interval until
-// ctx is cancelled.
 func RunDaemon(ctx context.Context, rt runtime.Runtime, store state.SessionStore, interval time.Duration) error {
 	slog.Info("cleanup daemon started", "interval", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Run once immediately on start
 	RunOnce(ctx, rt, store)
 
 	for {
@@ -141,7 +130,6 @@ func RunDaemon(ctx context.Context, rt runtime.Runtime, store state.SessionStore
 	}
 }
 
-// FormatDuration formats a duration as a human-readable string like "2h30m" or "45s".
 func FormatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

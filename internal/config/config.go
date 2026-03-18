@@ -123,9 +123,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Load reads a YAML config file and returns a Config with defaults
-// applied for any missing fields. If the file doesn't exist, returns
-// defaults without error.
+// Missing file returns defaults without error (server config is optional).
 func Load(path string) (*Config, error) {
 	cfg := Defaults()
 

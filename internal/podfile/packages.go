@@ -17,7 +17,6 @@ func ParsePackage(spec string) Package {
 	return Package{Name: spec}
 }
 
-// knownPackages maps tool name to version to install commands.
 // "*" as a version key means any version, with ${VERSION} substituted.
 var knownPackages = map[string]map[string][]string{
 	"nodejs": {
@@ -41,8 +40,7 @@ var knownPackages = map[string]map[string][]string{
 	},
 }
 
-// InstallCommands splits parsed packages into plain apt packages and
-// special install sequences from the version map. Returns (aptPackages, specialRuns, error).
+// InstallCommands splits packages into apt installs and special install sequences.
 func InstallCommands(pkgs []Package) ([]string, []string, error) {
 	var aptPkgs []string
 	var specialRuns []string
@@ -60,13 +58,11 @@ func InstallCommands(pkgs []Package) ([]string, []string, error) {
 			continue
 		}
 
-		// Exact version match
 		if cmds, ok := versions[pkg.Version]; ok {
 			specialRuns = append(specialRuns, cmds...)
 			continue
 		}
 
-		// Wildcard version
 		if cmds, ok := versions["*"]; ok {
 			for _, cmd := range cmds {
 				specialRuns = append(specialRuns, strings.ReplaceAll(cmd, "${VERSION}", pkg.Version))

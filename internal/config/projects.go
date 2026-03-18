@@ -17,8 +17,6 @@ type ProjectConfig struct {
 	ImageTag    string `yaml:"image_tag"`
 }
 
-// LoadProjects reads the project registry from a YAML file.
-// Returns an empty map if the file doesn't exist.
 func LoadProjects(path string) (map[string]ProjectConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -38,7 +36,6 @@ func LoadProjects(path string) (map[string]ProjectConfig, error) {
 	return projects, nil
 }
 
-// SaveProjects writes the project registry atomically (temp file + rename).
 func SaveProjects(path string, projects map[string]ProjectConfig) error {
 	data, err := yaml.Marshal(projects)
 	if err != nil {

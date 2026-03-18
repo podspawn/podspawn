@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// Event types for the audit log.
 const (
 	EventConnect    = "session.connect"
 	EventDisconnect = "session.disconnect"
@@ -82,8 +81,6 @@ func (l *Logger) Log(event string, user string, attrs ...slog.Attr) {
 	}
 	l.logger.Info("audit", args...)
 }
-
-// Convenience methods for common events
 
 func (l *Logger) Connect(user, project, container string, connections int) {
 	l.Log(EventConnect, user,

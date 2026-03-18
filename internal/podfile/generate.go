@@ -6,9 +6,8 @@ import (
 	"strings"
 )
 
-// Generate produces a Dockerfile from a parsed Podfile.
-// Only image-time concerns go here: FROM, packages, shell, static env, ports, extra commands.
-// Runtime concerns (repos, dotfiles, on_create, services) are handled at container creation.
+// Generate produces a Dockerfile from a Podfile.
+// Runtime concerns (repos, dotfiles, services) are handled at container creation.
 func Generate(pf *Podfile) (string, error) {
 	var b strings.Builder
 

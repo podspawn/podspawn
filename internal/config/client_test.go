@@ -1,20 +1,10 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func writeClientTemp(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 func TestLoadClientValidConfig(t *testing.T) {
 	yaml := `
@@ -24,7 +14,7 @@ servers:
     work.pod: devbox.company.com
     gpu.pod: gpu-server.company.com
 `
-	cfg, err := LoadClient(writeClientTemp(t, yaml))
+	cfg, err := LoadClient(writeTemp(t, yaml))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +40,7 @@ func TestLoadClientMissingFile(t *testing.T) {
 }
 
 func TestLoadClientMalformedYAML(t *testing.T) {
-	_, err := LoadClient(writeClientTemp(t, "{{not yaml"))
+	_, err := LoadClient(writeTemp(t, "{{not yaml"))
 	if err == nil {
 		t.Fatal("expected error for bad YAML")
 	}
@@ -61,7 +51,7 @@ func TestLoadClientEmptyMappings(t *testing.T) {
 servers:
   default: solo.example.com
 `
-	cfg, err := LoadClient(writeClientTemp(t, yaml))
+	cfg, err := LoadClient(writeTemp(t, yaml))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +190,7 @@ local:
   cpus: 4
   memory: 4g
 `
-	cfg, err := LoadClient(writeClientTemp(t, yaml))
+	cfg, err := LoadClient(writeTemp(t, yaml))
 	if err != nil {
 		t.Fatal(err)
 	}

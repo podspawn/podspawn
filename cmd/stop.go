@@ -56,9 +56,6 @@ var stopCmd = &cobra.Command{
 	},
 }
 
-// resolveStopArg interprets the stop argument based on mode.
-// Local mode: bare name is a machine name, user is $USER.
-// Server mode: user[@project] format.
 func resolveStopArg(arg string) (user, project string) {
 	if idx := strings.Index(arg, "@"); idx >= 0 {
 		return arg[:idx], arg[idx+1:]

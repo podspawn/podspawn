@@ -2,14 +2,12 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
-	"time"
-
 	"log/slog"
-
-	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
@@ -119,7 +117,6 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 		Env:       opts.Env,
 		Labels:    opts.Labels,
 		OpenStdin: true,
-		Tty:       false,
 	}
 	if opts.Hostname != "" {
 		containerCfg.Hostname = opts.Hostname
@@ -178,8 +175,6 @@ func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecO
 		}()
 	}
 
-	// Wait for output to complete. When the exec process exits,
-	// Docker closes the output stream and this returns.
 	var outputErr error
 	if opts.TTY {
 		_, outputErr = io.Copy(opts.Stdout, attach.Reader)

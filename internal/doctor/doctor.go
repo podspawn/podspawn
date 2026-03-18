@@ -122,14 +122,12 @@ func (c CheckConfig) checkSSHDVersion(_ context.Context) Result {
 	// sshd -V writes to stderr and exits non-zero on some versions
 	output := string(out)
 	if strings.Contains(output, "OpenSSH") {
-		// Extract version number
 		for _, line := range strings.Split(output, "\n") {
 			if strings.Contains(line, "OpenSSH") {
 				return Result{"OpenSSH version", Pass, strings.TrimSpace(line)}
 			}
 		}
 	}
-	// Try ssh -V as fallback
 	out2, _ := exec.Command("ssh", "-V").CombinedOutput()
 	output2 := string(out2)
 	if strings.Contains(output2, "OpenSSH") {
@@ -203,8 +201,6 @@ func (c CheckConfig) checkStateDir(_ context.Context) Result {
 func (c CheckConfig) checkLockDir(_ context.Context) Result {
 	return checkDirExists(c.LockDir, "lock directory")
 }
-
-// checkDiskSpace is in disk_unix.go / disk_windows.go
 
 func (c CheckConfig) checkDefaultImage(ctx context.Context) Result {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

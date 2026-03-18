@@ -152,7 +152,6 @@ defaults:
 	if cfg.Defaults.Image != "alpine:3.20" {
 		t.Errorf("image = %q, want alpine:3.20", cfg.Defaults.Image)
 	}
-	// Unset fields should keep defaults
 	if cfg.Auth.KeyDir != "/etc/podspawn/keys" {
 		t.Errorf("key_dir should default to /etc/podspawn/keys, got %q", cfg.Auth.KeyDir)
 	}
@@ -218,7 +217,6 @@ func TestLocalDefaults(t *testing.T) {
 	if cfg.Session.MaxLifetime != "24h" {
 		t.Errorf("session.max_lifetime = %q, want 24h", cfg.Session.MaxLifetime)
 	}
-	// Should inherit server defaults for everything else
 	if cfg.Defaults.Image != "ubuntu:24.04" {
 		t.Errorf("defaults.image = %q, want ubuntu:24.04", cfg.Defaults.Image)
 	}

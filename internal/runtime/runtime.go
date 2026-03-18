@@ -10,24 +10,23 @@ type ContainerOpts struct {
 	Name        string
 	Image       string
 	Hostname    string
-	User        string // container user (e.g., "root" or OS username)
+	User        string
 	Cmd         []string
 	Env         []string
 	Mounts      []Mount
 	CPUs        float64
 	Memory      int64
 	Labels      map[string]string
-	NetworkID   string // Docker network to attach to
+	NetworkID   string
 	NetworkName string // DNS alias on the network
 
-	// Security options
-	CapDrop        []string // capabilities to drop (e.g., ["ALL"])
-	CapAdd         []string // capabilities to re-add after drop
-	SecurityOpt    []string // e.g., ["no-new-privileges:true"]
-	PidsLimit      int64    // max PIDs in container (0 = unlimited)
+	CapDrop        []string
+	CapAdd         []string
+	SecurityOpt    []string
+	PidsLimit      int64
 	ReadonlyRootfs bool
-	Tmpfs          map[string]string // tmpfs mounts (target -> options)
-	RuntimeName    string            // container runtime (e.g., "runsc" for gVisor)
+	Tmpfs          map[string]string // target -> mount options
+	RuntimeName    string            // e.g., "runsc" for gVisor
 }
 
 type Mount struct {
@@ -38,17 +37,16 @@ type Mount struct {
 
 type ExecOpts struct {
 	Cmd        []string
-	User       string // run as this user (empty = container default, i.e. root)
-	WorkingDir string // working directory (empty = container default)
+	User       string
+	WorkingDir string
 	TTY        bool
 	Stdin      io.Reader
 	Stdout     io.Writer
 	Stderr     io.Writer
-	Env        []string // per-exec environment variables
+	Env        []string
 
-	// ExecIDCallback is called with the exec ID before I/O piping
-	// starts. Spawn uses this to set up terminal resize handling
-	// while the exec is still running. Nil means no callback.
+	// Called with the exec ID before I/O piping starts, so the
+	// caller can set up terminal resize handling while exec runs.
 	ExecIDCallback func(execID string)
 }
 
@@ -56,7 +54,7 @@ type Runtime interface {
 	ContainerExists(ctx context.Context, name string) (bool, error)
 	CreateContainer(ctx context.Context, opts ContainerOpts) (string, error)
 	StartContainer(ctx context.Context, id string) error
-	Exec(ctx context.Context, containerID string, opts ExecOpts) (int, error) // returns exit code
+	Exec(ctx context.Context, containerID string, opts ExecOpts) (int, error)
 	StopContainer(ctx context.Context, id string, timeout time.Duration) error
 	RemoveContainer(ctx context.Context, id string) error
 	ResizeExec(ctx context.Context, execID string, height, width uint) error
@@ -73,6 +71,6 @@ type ContainerInfo struct {
 	ID     string
 	Name   string
 	Image  string
-	State  string // "running", "exited", etc.
+	State  string
 	Labels map[string]string
 }

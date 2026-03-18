@@ -12,16 +12,13 @@ import (
 	"github.com/podspawn/podspawn/internal/runtime"
 )
 
-// ComputeTag returns a deterministic image tag based on the project name
-// and raw Podfile bytes. Format: podspawn/<project>:podfile-<sha256[:12]>.
+// ComputeTag returns a content-addressed image tag: podspawn/<project>:podfile-<sha256[:12]>.
 func ComputeTag(project string, rawBytes []byte) string {
 	h := sha256.Sum256(rawBytes)
 	return fmt.Sprintf("podspawn/%s:podfile-%x", project, h[:6])
 }
 
-// BuildImageFromPodfile builds a Docker image from a Podfile, using the
-// raw bytes for cache key computation. Returns the image tag. Skips the
-// build if the image already exists (cache hit).
+// BuildImageFromPodfile builds or reuses a cached image from a Podfile.
 func BuildImageFromPodfile(ctx context.Context, rt runtime.Runtime, pf *Podfile, rawBytes []byte, project string) (string, error) {
 	tag := ComputeTag(project, rawBytes)
 

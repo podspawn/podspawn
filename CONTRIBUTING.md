@@ -11,7 +11,7 @@ make hooks   # install pre-commit hook (gofmt + vet + lint + tests)
 
 Requirements:
 - Go 1.25+
-- Docker (or OrbStack on macOS)
+- Docker
 - golangci-lint v2
 
 ## Running tests
