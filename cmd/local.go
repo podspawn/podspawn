@@ -27,6 +27,12 @@ func (ls *localSession) Close() {
 }
 
 func buildLocalSession(name string) (*localSession, error) {
+	if name != "" {
+		if err := validateMachineName(name); err != nil {
+			return nil, err
+		}
+	}
+
 	user := os.Getenv("USER")
 	if user == "" {
 		return nil, fmt.Errorf("USER environment variable not set")

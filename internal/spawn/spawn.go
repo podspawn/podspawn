@@ -57,7 +57,18 @@ func (s *Session) setupContainerUser(ctx context.Context, containerID string) er
 	}
 
 	script := fmt.Sprintf(`
-if id -u %s >/dev/null 2>&1; then exit 0; fi
+RCFILE=""
+case "%s" in
+  */zsh)  RCFILE=/home/%s/.zshrc ;;
+  */bash) RCFILE=/home/%s/.bashrc ;;
+esac
+if id -u %s >/dev/null 2>&1; then
+  if [ -n "$RCFILE" ] && [ ! -f "$RCFILE" ]; then
+    touch "$RCFILE"
+    chown 1000:1000 "$RCFILE"
+  fi
+  exit 0
+fi
 EXISTING=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
 if [ -n "$EXISTING" ] && [ "$EXISTING" != "%s" ]; then
   userdel "$EXISTING" 2>/dev/null || true
@@ -73,20 +84,16 @@ fi
 mkdir -p /etc/sudoers.d
 echo '%s ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/%s
 chmod 0440 /etc/sudoers.d/%s
-RCFILE=""
-case "%s" in
-  */zsh)  RCFILE=/home/%s/.zshrc ;;
-  */bash) RCFILE=/home/%s/.bashrc ;;
-esac
 if [ -n "$RCFILE" ] && [ ! -f "$RCFILE" ]; then
   touch "$RCFILE"
   chown 1000:1000 "$RCFILE"
 fi
-`, s.Username, s.Username,
+`, shell, s.Username, s.Username,
+		s.Username,
+		s.Username,
 		s.Username, shell, s.Username,
 		s.Username, s.Username, shell, s.Username, s.Username, s.Username,
-		s.Username, s.Username, s.Username,
-		shell, s.Username, s.Username)
+		s.Username, s.Username, s.Username)
 
 	exitCode, err := s.Runtime.Exec(ctx, containerID, runtime.ExecOpts{
 		Cmd: []string{"sh", "-c", script},
@@ -311,9 +318,11 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 			return 1, err
 		}
 		if err := s.Runtime.StartContainer(ctx, containerName); err != nil {
+			_ = s.Runtime.RemoveContainer(ctx, containerName)
 			return 1, err
 		}
 		if err := s.setupContainerUser(ctx, containerName); err != nil {
+			_ = s.Runtime.RemoveContainer(ctx, containerName)
 			return 1, fmt.Errorf("setting up container user: %w", err)
 		}
 	} else {
@@ -479,7 +488,7 @@ func (s *Session) reconcileUser(ctx context.Context) {
 	if err != nil || sess == nil {
 		return
 	}
-	if sess.Status == state.StatusGracePeriod && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now()) {
+	if sess.Status == state.StatusGracePeriod && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(time.Now().UTC()) {
 		slog.Info("reconcile: grace period expired", "user", sess.User, "container", sess.ContainerName)
 		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, sess)
 	}
@@ -694,7 +703,7 @@ func (s *Session) Disconnect(ctx context.Context) {
 		return
 	}
 
-	expiry := time.Now().Add(s.GracePeriod)
+	expiry := time.Now().UTC().Add(s.GracePeriod)
 	slog.Info("starting grace period", "user", s.Username, "expires", expiry)
 	if err := s.Store.SetGracePeriod(s.Username, s.ProjectName, expiry); err != nil {
 		slog.Error("failed to set grace period", "user", s.Username, "error", err)

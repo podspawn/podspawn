@@ -133,6 +133,22 @@ func TestStartServicesWithVolumes(t *testing.T) {
 	}
 }
 
+func TestStartServicesMalformedVolumeReturnsError(t *testing.T) {
+	rt := runtime.NewFakeRuntime()
+	services := []ServiceConfig{
+		{
+			Name:    "postgres",
+			Image:   "postgres:16",
+			Volumes: []string{"/data/pg/var/lib/postgresql/data"}, // missing colon
+		},
+	}
+
+	_, err := StartServices(context.Background(), rt, services, "net-123", "prefix")
+	if err == nil {
+		t.Fatal("expected error for malformed volume spec (missing colon separator)")
+	}
+}
+
 func TestStartServicesEmpty(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
 	ids, err := StartServices(context.Background(), rt, nil, "net-123", "prefix")

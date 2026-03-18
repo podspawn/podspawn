@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+func TestValidateMachineName(t *testing.T) {
+	valid := []string{"dev", "my-project", "backend_v2", "a123"}
+	for _, name := range valid {
+		if err := validateMachineName(name); err != nil {
+			t.Errorf("validateMachineName(%q) = %v, want nil", name, err)
+		}
+	}
+
+	invalid := []string{"", "../etc", "my project", "name/slash", "UPPER", ".hidden", "-dash",
+		"a b", "hello;world", "test$(cmd)", "name\nline"}
+	for _, name := range invalid {
+		if err := validateMachineName(name); err == nil {
+			t.Errorf("validateMachineName(%q) = nil, want error", name)
+		}
+	}
+}
+
 func TestParseUserHost(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -95,7 +95,7 @@ func (f *FakeStore) DeleteSession(user, project string) error {
 func (f *FakeStore) ExpiredGracePeriods() ([]*Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	now := time.Now()
+	now := time.Now().UTC()
 	var out []*Session
 	for _, sess := range f.Sessions {
 		if sess.Status == StatusGracePeriod && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(now) {
@@ -109,7 +109,7 @@ func (f *FakeStore) ExpiredGracePeriods() ([]*Session, error) {
 func (f *FakeStore) ExpiredLifetimes() ([]*Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	now := time.Now()
+	now := time.Now().UTC()
 	var out []*Session
 	for _, sess := range f.Sessions {
 		if sess.MaxLifetime.Before(now) {
