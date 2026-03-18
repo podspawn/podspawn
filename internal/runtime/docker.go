@@ -145,6 +145,8 @@ func (d *DockerRuntime) StartContainer(ctx context.Context, id string) error {
 func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecOpts) (int, error) {
 	execCfg := container.ExecOptions{
 		Cmd:          opts.Cmd,
+		User:         opts.User,
+		WorkingDir:   opts.WorkingDir,
 		Tty:          opts.TTY,
 		AttachStdin:  opts.Stdin != nil,
 		AttachStdout: true,
