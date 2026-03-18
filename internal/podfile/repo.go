@@ -6,8 +6,7 @@ import (
 	"os/exec"
 )
 
-// CloneRepo clones a git repository to the given destination directory.
-// The context controls the lifetime of the git process.
+// CloneRepo clones a git repository to dest.
 func CloneRepo(ctx context.Context, url, dest, branch string) error {
 	args := []string{"clone", "--single-branch"}
 	if branch != "" {
@@ -23,8 +22,7 @@ func CloneRepo(ctx context.Context, url, dest, branch string) error {
 	return nil
 }
 
-// PullRepo runs git pull in the given directory.
-// The context controls the lifetime of the git process.
+// PullRepo runs git pull in dir.
 func PullRepo(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "pull")
 	out, err := cmd.CombinedOutput()

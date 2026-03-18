@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Parse decodes a Podfile from an io.Reader, applies defaults, and validates.
+// Parse decodes a Podfile, applies defaults, and validates.
 func Parse(r io.Reader) (*Podfile, error) {
 	var pf Podfile
 	dec := yaml.NewDecoder(r)
@@ -34,7 +34,7 @@ func Parse(r io.Reader) (*Podfile, error) {
 	return &pf, nil
 }
 
-// ParseFile reads and parses a Podfile from a filesystem path.
+// ParseFile reads and parses a Podfile from path.
 func ParseFile(path string) (*Podfile, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -44,9 +44,7 @@ func ParseFile(path string) (*Podfile, error) {
 	return Parse(f)
 }
 
-// FindAndRead searches for a Podfile in a project directory and returns
-// the raw bytes. Checks .podspawn/podfile.yaml first, then podfile.yaml,
-// then falls back to devcontainer.json (converted to podfile YAML).
+// FindAndRead locates and reads a Podfile (or devcontainer.json fallback) from projectDir.
 func FindAndRead(projectDir string) ([]byte, error) {
 	candidates := []string{
 		filepath.Join(projectDir, ".podspawn", "podfile.yaml"),
@@ -62,7 +60,6 @@ func FindAndRead(projectDir string) ([]byte, error) {
 		}
 	}
 
-	// Fallback: try devcontainer.json
 	dcPath, err := FindDevContainer(projectDir)
 	if err == nil {
 		dc, parseErr := ParseDevContainer(dcPath)

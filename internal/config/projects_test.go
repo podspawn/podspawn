@@ -59,14 +59,12 @@ func TestSaveProjectsAtomic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "projects.yaml")
 
-	// Write initial
 	if err := SaveProjects(path, map[string]ProjectConfig{
 		"v1": {Repo: "old"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Overwrite
 	if err := SaveProjects(path, map[string]ProjectConfig{
 		"v2": {Repo: "new"},
 	}); err != nil {
@@ -84,7 +82,6 @@ func TestSaveProjectsAtomic(t *testing.T) {
 		t.Errorf("v2 repo = %q, want 'new'", loaded["v2"].Repo)
 	}
 
-	// No temp files left behind
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		names := make([]string, len(entries))

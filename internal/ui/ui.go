@@ -22,35 +22,17 @@ func Success(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "%s %s\n", green.Sprint("✓"), msg)
 }
 
-func Info(format string, a ...any) {
-	msg := fmt.Sprintf(format, a...)
-	fmt.Fprintf(os.Stderr, "%s %s\n", faint.Sprint("→"), msg)
-}
-
-func Warn(format string, a ...any) {
-	msg := fmt.Sprintf(format, a...)
-	fmt.Fprintf(os.Stderr, "%s %s\n", yellow.Sprint("⚠"), msg)
-}
-
-func Fail(format string, a ...any) {
-	msg := fmt.Sprintf(format, a...)
-	fmt.Fprintf(os.Stderr, "%s %s\n", red.Sprint("✗"), msg)
-}
-
-func Bold(s string) string   { return bold.Sprint(s) }
-func Green(s string) string  { return green.Sprint(s) }
-func Yellow(s string) string { return yellow.Sprint(s) }
-func Red(s string) string    { return red.Sprint(s) }
-func Faint(s string) string  { return faint.Sprint(s) }
+func Bold(s string) string  { return bold.Sprint(s) }
+func Faint(s string) string { return faint.Sprint(s) }
 
 func ColorStatus(status string) string {
 	switch status {
 	case "running":
-		return Green(status)
+		return green.Sprint(status)
 	case "grace_period":
-		return Yellow("grace period")
+		return yellow.Sprint("grace period")
 	default:
-		return Red(status)
+		return red.Sprint(status)
 	}
 }
 

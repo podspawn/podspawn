@@ -1,7 +1,5 @@
 package podfile
 
-// Podfile defines a project's dev environment declaratively.
-// Parsed from podfile.yaml in the project root or .podspawn/ directory.
 type Podfile struct {
 	Base          string            `yaml:"base"`
 	Packages      []string          `yaml:"packages"`

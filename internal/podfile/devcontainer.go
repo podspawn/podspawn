@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// DevContainer represents a subset of devcontainer.json that podspawn supports.
+// DevContainer represents the subset of devcontainer.json we support.
 type DevContainer struct {
 	Image             string            `json:"image"`
 	Features          map[string]any    `json:"features"`
@@ -21,8 +21,7 @@ type DevContainer struct {
 	RemoteEnv         map[string]string `json:"remoteEnv"`
 }
 
-// FindDevContainer searches for a devcontainer.json in a project directory.
-// Checks .devcontainer/devcontainer.json first, then .devcontainer.json.
+// FindDevContainer locates devcontainer.json in projectDir.
 func FindDevContainer(projectDir string) (string, error) {
 	candidates := []string{
 		filepath.Join(projectDir, ".devcontainer", "devcontainer.json"),
@@ -36,14 +35,14 @@ func FindDevContainer(projectDir string) (string, error) {
 	return "", fmt.Errorf("no devcontainer.json found in %s", projectDir)
 }
 
-// ParseDevContainer reads and parses a devcontainer.json file.
+// ParseDevContainer reads and parses a devcontainer.json.
 func ParseDevContainer(path string) (*DevContainer, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Strip JSON comments (// and /* */) since devcontainer.json allows them (JSONC)
+	// devcontainer.json is JSONC (allows comments)
 	data = stripJSONComments(data)
 
 	var dc DevContainer
@@ -53,8 +52,7 @@ func ParseDevContainer(path string) (*DevContainer, error) {
 	return &dc, nil
 }
 
-// ToPodfile converts a DevContainer to a Podfile representation.
-// This is a lossy conversion; features are recorded but not fully expanded.
+// ToPodfile converts to a Podfile. Lossy; features are not expanded.
 func (dc *DevContainer) ToPodfile() *Podfile {
 	pf := &Podfile{
 		Base:  dc.Image,
@@ -65,7 +63,6 @@ func (dc *DevContainer) ToPodfile() *Podfile {
 		pf.Base = "ubuntu:24.04"
 	}
 
-	// Merge container and remote env vars
 	if len(dc.ContainerEnv) > 0 || len(dc.RemoteEnv) > 0 {
 		pf.Env = make(map[string]string)
 		for k, v := range dc.ContainerEnv {
@@ -86,8 +83,6 @@ func (dc *DevContainer) ToPodfile() *Podfile {
 	return pf
 }
 
-// commandToString converts a devcontainer command field (string, []string, or map)
-// to a shell command string.
 func commandToString(cmd any) string {
 	if cmd == nil {
 		return ""
@@ -121,13 +116,10 @@ func commandToString(cmd any) string {
 	}
 }
 
-// stripJSONComments removes // and /* */ comments from JSONC content.
-// Naive implementation that handles the common cases.
 func stripJSONComments(data []byte) []byte {
 	var result []byte
 	i := 0
 	for i < len(data) {
-		// Inside a string literal, skip to end
 		if data[i] == '"' {
 			result = append(result, data[i])
 			i++
@@ -146,7 +138,6 @@ func stripJSONComments(data []byte) []byte {
 			}
 			continue
 		}
-		// Line comment
 		if i+1 < len(data) && data[i] == '/' && data[i+1] == '/' {
 			i += 2
 			for i < len(data) && data[i] != '\n' {
@@ -154,7 +145,6 @@ func stripJSONComments(data []byte) []byte {
 			}
 			continue
 		}
-		// Block comment
 		if i+1 < len(data) && data[i] == '/' && data[i+1] == '*' {
 			i += 2
 			for i+1 < len(data) && (data[i] != '*' || data[i+1] != '/') {

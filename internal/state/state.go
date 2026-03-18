@@ -17,7 +17,7 @@ const (
 
 type Session struct {
 	User          string
-	Project       string // together with User forms composite PK
+	Project       string
 	ContainerID   string
 	ContainerName string
 	Image         string
@@ -31,8 +31,6 @@ type Session struct {
 	ServiceIDs    string // comma-separated container IDs
 }
 
-// SessionStore is the interface for session persistence.
-// Implemented by Store (SQLite) and FakeStore (tests).
 type SessionStore interface {
 	CreateSession(sess *Session) error
 	GetSession(user, project string) (*Session, error)

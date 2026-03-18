@@ -251,8 +251,6 @@ func TestDevContainerWithRemoteUserDoesNotCrash(t *testing.T) {
 	}
 	pf := dc.ToPodfile()
 
-	// RemoteUser is parsed but not mapped to Podfile (devcontainer-specific).
-	// Verify conversion succeeds without crashing.
 	if pf.Base != "node:22" {
 		t.Errorf("Base = %q, want node:22", pf.Base)
 	}

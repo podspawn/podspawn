@@ -78,33 +78,24 @@ func buildLocalSession(name string) (*localSession, error) {
 		}
 	}
 
-	// If no project found, check for default Podfile from onboarding wizard
 	if sess.Project == nil {
-		home, _ := os.UserHomeDir()
-		if home != "" {
+		if home, _ := os.UserHomeDir(); home != "" {
 			podspawnDir := filepath.Join(home, ".podspawn")
-			podfilePath := filepath.Join(podspawnDir, "podfile.yaml")
-			if _, statErr := os.Stat(podfilePath); statErr == nil {
-				sess.Project = &config.ProjectConfig{
-					LocalPath: podspawnDir,
-				}
+			if _, statErr := os.Stat(filepath.Join(podspawnDir, "podfile.yaml")); statErr == nil {
+				sess.Project = &config.ProjectConfig{LocalPath: podspawnDir}
 			}
 		}
 	}
 
-	uo, err := config.LoadUserOverrides("/etc/podspawn", user)
-	if err != nil {
-		slog.Warn("failed to load user overrides", "user", user, "error", err)
-	}
-	if uo != nil {
+	if uo, loadErr := config.LoadUserOverrides("/etc/podspawn", user); loadErr != nil {
+		slog.Warn("failed to load user overrides", "user", user, "error", loadErr)
+	} else if uo != nil {
 		sess.UserOverrides = uo
 	}
 
-	auditLogger, auditErr := audit.Open(cfg.Log.AuditLog)
-	if auditErr != nil {
+	if auditLogger, auditErr := audit.Open(cfg.Log.AuditLog); auditErr != nil {
 		slog.Warn("failed to open audit log", "error", auditErr)
-	}
-	if auditLogger != nil {
+	} else if auditLogger != nil {
 		sess.Audit = auditLogger
 		ls.closers = append(ls.closers, func() { _ = auditLogger.Close() })
 	}

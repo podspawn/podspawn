@@ -4,7 +4,6 @@ set -e
 REPO="podspawn/podspawn"
 INSTALL_DIR="/usr/local/bin"
 
-# Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
@@ -19,7 +18,6 @@ case "$OS" in
     *) echo "Unsupported OS: $OS" >&2; exit 1 ;;
 esac
 
-# Get latest version
 if command -v curl >/dev/null 2>&1; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
 elif command -v wget >/dev/null 2>&1; then
@@ -48,7 +46,6 @@ else
     wget -q "$URL" -O "$TMPDIR/podspawn.tar.gz"
 fi
 
-# Verify checksum
 CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 if command -v curl >/dev/null 2>&1; then
     curl -sSfL "$CHECKSUM_URL" -o "$TMPDIR/checksums.txt"

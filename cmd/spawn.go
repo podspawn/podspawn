@@ -22,8 +22,6 @@ var spawnCmd = &cobra.Command{
 		user, _ := cmd.Flags().GetString("user")
 		project, _ := cmd.Flags().GetString("project")
 
-		// Project routing: SSH client sends PODSPAWN_PROJECT=<hostname>.pod
-		// via SetEnv/SendEnv. Strip the .pod suffix to get the project name.
 		if project == "" {
 			if envProject := os.Getenv("PODSPAWN_PROJECT"); envProject != "" {
 				project = strings.TrimSuffix(envProject, ".pod")
@@ -36,7 +34,7 @@ var spawnCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// These are validated by config.Load, so errors here are unreachable
+		// Already validated by config.Load
 		memory, _ := config.ParseMemory(cfg.Defaults.Memory)
 		gracePeriod, _ := time.ParseDuration(cfg.Session.GracePeriod)
 		maxLifetime, _ := time.ParseDuration(cfg.Session.MaxLifetime)

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -28,6 +29,7 @@ var shellCmd = &cobra.Command{
 			ls.Session.Username = user
 		}
 
+		// Prevent routeSession from treating this as a non-interactive command
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 
 		exitCode := ls.Session.RunAndCleanup(context.Background())
@@ -38,12 +40,9 @@ var shellCmd = &cobra.Command{
 	},
 }
 
-// parseShellTarget splits "user@project" or just "project".
 func parseShellTarget(target string) (user, project string) {
-	for i, c := range target {
-		if c == '@' {
-			return target[:i], target[i+1:]
-		}
+	if u, p, ok := strings.Cut(target, "@"); ok {
+		return u, p
 	}
 	return "", target
 }

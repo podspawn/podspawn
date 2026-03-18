@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// ParseMemory converts a human-readable memory string (e.g., "2g", "512m", "1024k")
-// to bytes. Supports g/m/k suffixes (case-insensitive). Plain numbers are bytes.
 func ParseMemory(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "0" {

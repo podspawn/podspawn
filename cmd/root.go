@@ -38,10 +38,7 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
 
-		// Detect local mode: server config doesn't exist and command supports local mode
-		serverConfigExists := fileExists(configPath)
-
-		if !serverConfigExists && localModeCommands[cmd.Name()] {
+		if !fileExists(configPath) && localModeCommands[cmd.Name()] {
 			isLocalMode = true
 			loaded := config.LocalDefaults()
 			loadLocalOverrides(loaded)
@@ -59,7 +56,6 @@ var rootCmd = &cobra.Command{
 			cfg = loaded
 		}
 
-		// Suppress slog for local-mode commands (user-facing, not server internals)
 		if isLocalMode {
 			slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 		}

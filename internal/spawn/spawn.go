@@ -50,9 +50,6 @@ func (s *Session) userHomeDir() string {
 	return "/home/" + s.Username
 }
 
-// setupContainerUser creates a non-root user inside the container.
-// Runs as root (the container default) exactly once per new container.
-// Idempotent: skips if the user already exists.
 func (s *Session) setupContainerUser(ctx context.Context, containerID string) error {
 	shell := s.Shell
 	if shell == "" {
@@ -103,6 +100,20 @@ func (s *Session) containerName() string {
 	return "podspawn-" + s.Username
 }
 
+func (s *Session) hostname() string {
+	if s.ProjectName != "" {
+		return s.ProjectName
+	}
+	return s.Username
+}
+
+func (s *Session) labels() map[string]string {
+	return map[string]string{
+		"managed-by":    "podspawn",
+		"podspawn-user": s.Username,
+	}
+}
+
 // Ensure creates the container and records it in state, but does not attach
 // or route a session. Used by `podspawn create` to provision machines without
 // opening a shell.
@@ -130,11 +141,9 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 		return s.routeSession(ctx, containerName)
 	}
 
-	// Phase 0 fallback: no state store
 	return s.ensureContainerLegacy(ctx, s.containerName())
 }
 
-// ensureContainerWithState uses locking + state store to manage the container.
 func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, error) {
 	containerName := s.containerName()
 
@@ -197,37 +206,28 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		return "", false, err
 	}
 
-	mounts := s.agentMount()
-	capDrop, capAdd, secOpt, pidsLimit, readonlyRoot, tmpfs, runtimeName := s.securityOpts()
+	sec := s.securityOpts()
 
 	slog.Info("creating container", "name", containerName, "image", image)
-	hostname := s.ProjectName
-	if hostname == "" {
-		hostname = s.Username
-	}
-
 	id, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 		Name:           containerName,
 		Image:          image,
-		Hostname:       hostname,
+		Hostname:       s.hostname(),
 		Cmd:            []string{"sleep", "infinity"},
 		Env:            env,
-		Mounts:         mounts,
+		Mounts:         s.agentMount(),
 		CPUs:           s.CPUs,
 		Memory:         s.Memory,
 		NetworkID:      networkID,
 		NetworkName:    containerName,
-		CapDrop:        capDrop,
-		CapAdd:         capAdd,
-		SecurityOpt:    secOpt,
-		PidsLimit:      pidsLimit,
-		ReadonlyRootfs: readonlyRoot,
-		Tmpfs:          tmpfs,
-		RuntimeName:    runtimeName,
-		Labels: map[string]string{
-			"managed-by":    "podspawn",
-			"podspawn-user": s.Username,
-		},
+		CapDrop:        sec.CapDrop,
+		CapAdd:         sec.CapAdd,
+		SecurityOpt:    sec.SecurityOpt,
+		PidsLimit:      sec.PidsLimit,
+		ReadonlyRootfs: sec.ReadonlyRootfs,
+		Tmpfs:          sec.Tmpfs,
+		RuntimeName:    sec.RuntimeName,
+		Labels:         s.labels(),
 	})
 	if err != nil {
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
@@ -268,7 +268,6 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	return containerName, true, nil
 }
 
-// ensureContainerLegacy is the Phase 0 path: no state, no locking.
 func (s *Session) ensureContainerLegacy(ctx context.Context, containerName string) (int, error) {
 	exists, err := s.Runtime.ContainerExists(ctx, containerName)
 	if err != nil {
@@ -276,31 +275,24 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 	}
 
 	if !exists {
-		capDrop, capAdd, secOpt, pidsLimit, readonlyRoot, tmpfs, runtimeName := s.securityOpts()
-		legacyHostname := s.ProjectName
-		if legacyHostname == "" {
-			legacyHostname = s.Username
-		}
+		sec := s.securityOpts()
 		slog.Info("creating container", "name", containerName, "image", s.Image)
 		_, err := s.Runtime.CreateContainer(ctx, runtime.ContainerOpts{
 			Name:           containerName,
-			Hostname:       legacyHostname,
+			Hostname:       s.hostname(),
 			Image:          s.Image,
 			Cmd:            []string{"sleep", "infinity"},
 			Mounts:         s.agentMount(),
 			CPUs:           s.CPUs,
 			Memory:         s.Memory,
-			CapDrop:        capDrop,
-			CapAdd:         capAdd,
-			SecurityOpt:    secOpt,
-			PidsLimit:      pidsLimit,
-			ReadonlyRootfs: readonlyRoot,
-			Tmpfs:          tmpfs,
-			RuntimeName:    runtimeName,
-			Labels: map[string]string{
-				"managed-by":    "podspawn",
-				"podspawn-user": s.Username,
-			},
+			CapDrop:        sec.CapDrop,
+			CapAdd:         sec.CapAdd,
+			SecurityOpt:    sec.SecurityOpt,
+			PidsLimit:      sec.PidsLimit,
+			ReadonlyRootfs: sec.ReadonlyRootfs,
+			Tmpfs:          sec.Tmpfs,
+			RuntimeName:    sec.RuntimeName,
+			Labels:         s.labels(),
 		})
 		if err != nil {
 			return 1, err
@@ -373,7 +365,6 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string, en
 	if err != nil {
 		return 1, err
 	}
-
 	return exitCode, nil
 }
 
@@ -382,7 +373,6 @@ func (s *Session) execCommand(ctx context.Context, containerName, origCmd string
 		Cmd:        []string{"sh", "-c", origCmd},
 		User:       s.Username,
 		WorkingDir: s.userHomeDir(),
-		TTY:        false,
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
@@ -394,23 +384,32 @@ func (s *Session) execCommand(ctx context.Context, containerName, origCmd string
 	return exitCode, nil
 }
 
-func (s *Session) securityOpts() (capDrop, capAdd, secOpt []string, pidsLimit int64, readonlyRoot bool, tmpfs map[string]string, runtimeName string) {
-	sec := s.Security
-	capDrop = sec.CapDrop
-	capAdd = sec.CapAdd
-	if sec.NoNewPrivs {
-		secOpt = append(secOpt, "no-new-privileges:true")
-	}
-	pidsLimit = sec.PidsLimit
-	readonlyRoot = sec.ReadonlyRoot
-	tmpfs = sec.Tmpfs
-	runtimeName = sec.RuntimeName
-	return
+type securitySettings struct {
+	CapDrop        []string
+	CapAdd         []string
+	SecurityOpt    []string
+	PidsLimit      int64
+	ReadonlyRootfs bool
+	Tmpfs          map[string]string
+	RuntimeName    string
 }
 
-// agentMount returns the bind mount for SSH agent forwarding.
-// Only creates the mount if SSH_AUTH_SOCK is set (no point mounting
-// an empty directory if agent forwarding isn't active).
+func (s *Session) securityOpts() securitySettings {
+	sec := s.Security
+	ss := securitySettings{
+		CapDrop:        sec.CapDrop,
+		CapAdd:         sec.CapAdd,
+		PidsLimit:      sec.PidsLimit,
+		ReadonlyRootfs: sec.ReadonlyRoot,
+		Tmpfs:          sec.Tmpfs,
+		RuntimeName:    sec.RuntimeName,
+	}
+	if sec.NoNewPrivs {
+		ss.SecurityOpt = []string{"no-new-privileges:true"}
+	}
+	return ss
+}
+
 func (s *Session) agentMount() []runtime.Mount {
 	if os.Getenv("SSH_AUTH_SOCK") == "" {
 		return nil
@@ -426,9 +425,6 @@ func (s *Session) agentMount() []runtime.Mount {
 	}}
 }
 
-// prepareAgentForwarding sets up the agent socket for a session exec.
-// If SSH_AUTH_SOCK is set, links the socket into the shared mount dir
-// using a per-PID filename to avoid races between concurrent sessions.
 func (s *Session) prepareAgentForwarding() []string {
 	hostSock := os.Getenv("SSH_AUTH_SOCK")
 	if hostSock == "" {
@@ -441,7 +437,6 @@ func (s *Session) prepareAgentForwarding() []string {
 		return nil
 	}
 
-	// Per-PID socket name prevents races between concurrent sessions
 	sockName := fmt.Sprintf("agent-%d.sock", os.Getpid())
 	target := filepath.Join(hostDir, sockName)
 	containerSock := filepath.Join(containerAgentDir, sockName)
@@ -456,11 +451,7 @@ func (s *Session) prepareAgentForwarding() []string {
 	return []string{"SSH_AUTH_SOCK=" + containerSock}
 }
 
-// handleResize is in resize_unix.go (uses SIGWINCH, not available on Windows)
-
-// reconcileUser cleans up stale state for the current user only.
 func (s *Session) reconcileUser(ctx context.Context) {
-	// Crash recovery: connections=0 with no grace expiry
 	stale, err := s.Store.StaleZeroConnections(s.Username, s.ProjectName)
 	if err != nil {
 		slog.Warn("reconcile: failed to check stale sessions", "error", err)
@@ -471,7 +462,6 @@ func (s *Session) reconcileUser(ctx context.Context) {
 		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, stale)
 	}
 
-	// Expired grace period for this user/project
 	sess, err := s.Store.GetSession(s.Username, s.ProjectName)
 	if err != nil || sess == nil {
 		return
@@ -558,7 +548,6 @@ func (s *Session) applyUserOverrides() {
 	}
 }
 
-// userNetworkName returns the per-user network name for isolation.
 func (s *Session) userNetworkName() string {
 	if s.ProjectName != "" {
 		return fmt.Sprintf("podspawn-%s-%s-net", s.Username, s.ProjectName)
@@ -566,11 +555,7 @@ func (s *Session) userNetworkName() string {
 	return fmt.Sprintf("podspawn-%s-net", s.Username)
 }
 
-// resolveProject loads the Podfile (if a project is configured), resolves the
-// cached image, and creates companion services. Returns the image to use,
-// env vars, network ID, and service container IDs.
 func (s *Session) resolveProject(ctx context.Context) (image string, env []string, networkID string, serviceIDs []string, err error) {
-	// Always create a per-user network for isolation
 	netName := s.userNetworkName()
 	networkID, err = s.Runtime.CreateNetwork(ctx, netName)
 	if err != nil {
@@ -617,7 +602,6 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 		s.Shell = pf.Shell
 	}
 
-	// User overrides take priority over Podfile values
 	s.applyUserOverrides()
 
 	for k, v := range pf.Env {
@@ -649,10 +633,8 @@ func (s *Session) cleanupServicesAndNetwork(ctx context.Context, serviceIDs []st
 
 // Disconnect handles session teardown: decrements connection count,
 // starts grace period or destroys container.
-// Must be called with context that has enough timeout for cleanup.
 func (s *Session) Disconnect(ctx context.Context) {
 	if s.Store == nil {
-		// Phase 0: always destroy
 		containerName := s.containerName()
 		if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
 			slog.Warn("cleanup failed", "container", containerName, "error", err)
@@ -699,8 +681,6 @@ func (s *Session) Disconnect(ctx context.Context) {
 	}
 }
 
-// RunAndCleanup runs the session and handles disconnect after.
-// Returns the exit code to pass to os.Exit.
 func (s *Session) RunAndCleanup(ctx context.Context) int {
 	exitCode, err := s.Run(ctx)
 	if err != nil {

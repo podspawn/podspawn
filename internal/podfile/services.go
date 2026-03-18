@@ -10,9 +10,7 @@ import (
 	"github.com/podspawn/podspawn/internal/runtime"
 )
 
-// StartServices creates and starts companion service containers on the
-// given network. Returns container IDs for later cleanup. On partial
-// failure, already-started services are removed before returning the error.
+// On partial failure, already-started services are removed before returning.
 func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceConfig, networkID, sessionPrefix string) ([]string, error) {
 	var ids []string
 
@@ -67,8 +65,7 @@ func StartServices(ctx context.Context, rt runtime.Runtime, services []ServiceCo
 	return ids, nil
 }
 
-// StopServices removes service containers. Best-effort: logs failures
-// but continues through the list.
+// StopServices removes service containers. Best-effort.
 func StopServices(ctx context.Context, rt runtime.Runtime, containerIDs []string) {
 	for _, id := range containerIDs {
 		if err := rt.RemoveContainer(ctx, id); err != nil {

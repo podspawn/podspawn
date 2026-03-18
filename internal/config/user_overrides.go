@@ -24,8 +24,6 @@ type DotfilesOverride struct {
 	Install string `yaml:"install"`
 }
 
-// LoadUserOverrides reads per-user config from /etc/podspawn/users/<username>.yaml.
-// Returns nil without error if the file doesn't exist.
 func LoadUserOverrides(baseDir, username string) (*UserOverrides, error) {
 	path := filepath.Join(baseDir, "users", username+".yaml")
 	data, err := os.ReadFile(path)

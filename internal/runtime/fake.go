@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// FakeRuntime records calls for test assertions. All methods are
-// safe for concurrent use.
 type FakeRuntime struct {
 	mu sync.Mutex
 

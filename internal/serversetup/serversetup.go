@@ -42,7 +42,6 @@ type Options struct {
 }
 
 func Run(paths Paths, cmd Commander, opts Options, out io.Writer) (retErr error) {
-	// Validate current sshd config before touching anything
 	if err := cmd.Run("sshd", "-t"); err != nil {
 		return fmt.Errorf("current sshd config is invalid, fix it before running server-setup: %w", err)
 	}

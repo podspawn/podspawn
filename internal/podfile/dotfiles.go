@@ -15,8 +15,7 @@ func homeDir(user string) string {
 	return "/home/" + user
 }
 
-// CloneDotfiles clones a dotfiles repo into ~/dotfiles inside the container
-// and optionally runs an install script.
+// CloneDotfiles clones a dotfiles repo into ~/dotfiles and runs the install script.
 func CloneDotfiles(ctx context.Context, rt runtime.Runtime, containerName, user string, cfg *DotfilesConfig) error {
 	dotfilesDir := homeDir(user) + "/dotfiles"
 	slog.Info("cloning dotfiles", "repo", cfg.Repo, "container", containerName)
@@ -48,8 +47,7 @@ func CloneDotfiles(ctx context.Context, rt runtime.Runtime, containerName, user 
 	return nil
 }
 
-// CloneRepoInContainer clones a project repo into the container at the
-// specified path.
+// CloneRepoInContainer clones a project repo inside the container.
 func CloneRepoInContainer(ctx context.Context, rt runtime.Runtime, containerName, user string, repo RepoConfig) error {
 	slog.Info("cloning repo", "url", repo.URL, "path", repo.Path, "container", containerName)
 
@@ -75,8 +73,7 @@ func CloneRepoInContainer(ctx context.Context, rt runtime.Runtime, containerName
 	return nil
 }
 
-// RunHook executes a shell command inside the container. Used for
-// on_create and on_start lifecycle hooks.
+// RunHook executes a lifecycle hook (on_create, on_start) inside the container.
 func RunHook(ctx context.Context, rt runtime.Runtime, containerName, user, hookName, script string) {
 	if script == "" {
 		return

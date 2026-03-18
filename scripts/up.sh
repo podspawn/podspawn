@@ -24,19 +24,11 @@ HAS_TTY=0
 
 ask() {
     if [ "$HAS_TTY" = "0" ]; then echo ""; return; fi
-    printf "  %s " "$1" >/dev/tty
+    printf "%s " "$1" >/dev/tty
     read -r REPLY </dev/tty
     echo "$REPLY"
 }
 
-ask_choice() {
-    if [ "$HAS_TTY" = "0" ]; then echo ""; return; fi
-    printf "%s" "$1" >/dev/tty
-    read -r REPLY </dev/tty
-    echo "$REPLY"
-}
-
-# --- Detect OS/arch ---
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -72,13 +64,12 @@ if command -v podspawn >/dev/null 2>&1; then
     printf "    ${B}4${R}) Continue    -- keep current, proceed to setup\n"
     printf "\n"
 
-    ACTION=$(ask_choice "  Choice [1-4]: ")
+    ACTION=$(ask "  Choice [1-4]: ")
 
     case "$ACTION" in
         1)
             sudo podspawn update
             ok "update complete ($(podspawn version 2>/dev/null | head -1))"
-            # If already onboarded, no need to re-run setup
             if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
                 printf "\n"
                 ok "already configured, nothing else to do"
@@ -91,7 +82,6 @@ if command -v podspawn >/dev/null 2>&1; then
             info "removing ${BINARY_PATH}"
             sudo rm -f "$BINARY_PATH"
             ok "removed old binary"
-            # Fall through to the install block below
             FORCE_INSTALL=1
             ;;
         3)
@@ -201,7 +191,7 @@ printf "    ${B}2${R}) Server   -- host containers for a team\n"
 printf "    ${B}3${R}) Client   -- connect to a remote server\n"
 printf "\n"
 
-MODE=$(ask_choice "  Choice [1-3]: ")
+MODE=$(ask "  Choice [1-3]: ")
 
 case "$MODE" in
     1) MODE="local" ;;
@@ -215,9 +205,7 @@ esac
 # ========================================
 if [ "$MODE" = "server" ]; then
 
-    # macOS-specific: host keys + Remote Login
     if [ "$OS" = "darwin" ]; then
-        # Generate host keys if missing
         if ! ls /etc/ssh/ssh_host_* >/dev/null 2>&1; then
             printf "\n"
             info "macOS has no SSH host keys (needed to run as an SSH server)"
@@ -233,7 +221,6 @@ if [ "$MODE" = "server" ]; then
             fi
         fi
 
-        # Enable Remote Login if not running
         if ! sudo launchctl list 2>/dev/null | grep -q "com.openssh.sshd"; then
             printf "\n"
             info "macOS Remote Login (SSH server) is not enabled"
@@ -270,7 +257,6 @@ if [ "$MODE" = "server" ]; then
     if [ -n "$MISSING" ]; then
         step "!" "Missing: $MISSING"
 
-        # Detect package manager and install
         if command -v apt-get >/dev/null 2>&1; then
             PKGS=""
             if echo "$MISSING" | grep -q "sshd"; then PKGS="openssh-server"; fi
@@ -280,7 +266,6 @@ if [ "$MODE" = "server" ]; then
             info "installing $PKGS (requires sudo)"
             sudo apt-get update -qq
             sudo apt-get install -y -qq $PKGS
-            # Start services
             if echo "$MISSING" | grep -q "sshd"; then
                 sudo systemctl enable --now ssh 2>/dev/null || sudo service ssh start 2>/dev/null || true
             fi
@@ -351,7 +336,6 @@ if [ "$MODE" = "local" ]; then
     step "3" "Local config"
     mkdir -p "$HOME/.podspawn"
 
-    # Default values
     PS_IMAGE="ubuntu:24.04"
     PS_SHELL="/bin/bash"
     PS_PACKAGES=""
@@ -366,7 +350,6 @@ if [ "$MODE" = "local" ]; then
 
         if [ "$CUSTOMIZE" != "n" ] && [ "$CUSTOMIZE" != "N" ]; then
 
-            # Use case
             printf "\n"
             printf "  ${B}What are you building?${R}\n"
             printf "    ${B}1${R}) ${G}Web development${R}     ${D}-- Node.js, Python, databases${R}\n"
@@ -374,7 +357,7 @@ if [ "$MODE" = "local" ]; then
             printf "    ${B}3${R}) Data science         ${D}-- Python, Jupyter, pandas${R}\n"
             printf "    ${B}4${R}) General purpose      ${D}-- bare ubuntu${R}\n"
             printf "\n"
-            USECASE=$(ask_choice "  Choice [1-4]: ")
+            USECASE=$(ask "  Choice [1-4]: ")
 
             case "$USECASE" in
                 1) PS_PACKAGES="nodejs,python3,git,curl,ripgrep" ;;
@@ -384,14 +367,13 @@ if [ "$MODE" = "local" ]; then
                 *) PS_PACKAGES="git,curl" ;;
             esac
 
-            # Shell
             printf "\n"
             printf "  ${B}Default shell?${R}\n"
             printf "    ${B}1${R}) ${G}bash${R}\n"
             printf "    ${B}2${R}) zsh\n"
             printf "    ${B}3${R}) fish\n"
             printf "\n"
-            SHELL_CHOICE=$(ask_choice "  Choice [1-3]: ")
+            SHELL_CHOICE=$(ask "  Choice [1-3]: ")
 
             case "$SHELL_CHOICE" in
                 2) PS_SHELL="/bin/zsh"; PS_PACKAGES="${PS_PACKAGES},zsh" ;;
@@ -399,14 +381,13 @@ if [ "$MODE" = "local" ]; then
                 *) PS_SHELL="/bin/bash" ;;
             esac
 
-            # Base image
             printf "\n"
             printf "  ${B}Base image?${R}\n"
             printf "    ${B}1${R}) ${G}Ubuntu 24.04${R}       ${D}(recommended)${R}\n"
             printf "    ${B}2${R}) Debian 12\n"
             printf "    ${B}3${R}) Alpine 3.20        ${D}(minimal)${R}\n"
             printf "\n"
-            IMG_CHOICE=$(ask_choice "  Choice [1-3]: ")
+            IMG_CHOICE=$(ask "  Choice [1-3]: ")
 
             case "$IMG_CHOICE" in
                 2) PS_IMAGE="debian:12" ;;
@@ -414,7 +395,6 @@ if [ "$MODE" = "local" ]; then
                 *) PS_IMAGE="ubuntu:24.04" ;;
             esac
 
-            # Database
             printf "\n"
             printf "  ${B}Include a database?${R}\n"
             printf "    ${B}1${R}) None\n"
@@ -422,7 +402,7 @@ if [ "$MODE" = "local" ]; then
             printf "    ${B}3${R}) MySQL\n"
             printf "    ${B}4${R}) Redis only\n"
             printf "\n"
-            DB_CHOICE=$(ask_choice "  Choice [1-4]: ")
+            DB_CHOICE=$(ask "  Choice [1-4]: ")
 
             case "$DB_CHOICE" in
                 2) PS_DB="postgres" ;;
@@ -431,14 +411,13 @@ if [ "$MODE" = "local" ]; then
                 *) ;;
             esac
 
-            # Cache (if not already selected redis-only)
             if [ "$PS_CACHE" != "redis" ] && [ -n "$PS_DB" ]; then
                 printf "\n"
                 printf "  ${B}Include Redis?${R}\n"
                 printf "    ${B}1${R}) No\n"
                 printf "    ${B}2${R}) ${G}Yes${R}\n"
                 printf "\n"
-                CACHE_CHOICE=$(ask_choice "  Choice [1-2]: ")
+                CACHE_CHOICE=$(ask "  Choice [1-2]: ")
                 if [ "$CACHE_CHOICE" = "2" ]; then
                     PS_CACHE="redis"
                 fi
@@ -447,7 +426,6 @@ if [ "$MODE" = "local" ]; then
             ok "preferences saved"
         fi
 
-        # Write config
         cat > "$HOME/.podspawn/config.yaml" <<YAML
 local:
   image: ${PS_IMAGE}
@@ -459,7 +437,6 @@ local:
 YAML
         ok "created ~/.podspawn/config.yaml"
 
-        # Write default Podfile if packages or services were selected
         if [ -n "$PS_PACKAGES" ] || [ -n "$PS_DB" ] || [ -n "$PS_CACHE" ]; then
             {
                 printf "base: %s\n" "$PS_IMAGE"
@@ -551,7 +528,7 @@ if [ "$MODE" = "server" ]; then
         printf "    ${B}4${R}) Paste a public key\n"
         printf "\n"
 
-        CHOICE=$(ask_choice "  Choice [1-4]: ")
+        CHOICE=$(ask "  Choice [1-4]: ")
 
         case "$CHOICE" in
             1)
@@ -588,7 +565,6 @@ if [ "$MODE" = "server" ]; then
         esac
     fi
 
-    # Unlock account for key auth + docker group
     sudo usermod -p '*' "$USERNAME" 2>/dev/null || true
     sudo usermod -aG docker "$USERNAME" 2>/dev/null || true
 

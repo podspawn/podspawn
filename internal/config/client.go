@@ -25,7 +25,6 @@ type LocalConfig struct {
 	Mode        string  `yaml:"mode"`
 }
 
-// ApplyTo overrides non-zero fields onto a Config.
 func (lc *LocalConfig) ApplyTo(cfg *Config) {
 	if lc.Image != "" {
 		cfg.Defaults.Image = lc.Image
@@ -55,8 +54,7 @@ type ServerRouting struct {
 	Mappings map[string]string `yaml:"mappings"`
 }
 
-// LoadClient reads a client config from the given path. Unlike the server
-// config, a missing file is an error since there are no useful defaults.
+// Missing file is an error, unlike Load(), since there are no useful client defaults.
 func LoadClient(path string) (*ClientConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -74,9 +72,6 @@ func LoadClient(path string) (*ClientConfig, error) {
 	return &cfg, nil
 }
 
-// ResolveHost maps a .pod hostname to a real server address.
-// Non-.pod hostnames pass through unchanged. For .pod hostnames,
-// it checks Mappings first, then falls back to Default.
 func (c *ClientConfig) ResolveHost(hostname string) (string, error) {
 	if !strings.HasSuffix(hostname, ".pod") {
 		return hostname, nil
