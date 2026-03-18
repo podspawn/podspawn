@@ -1747,3 +1747,184 @@ func TestEnsureRequiresStore(t *testing.T) {
 		t.Errorf("error should mention state store, got: %v", err)
 	}
 }
+
+func TestUserSetupExecRunsAsRootOnNewContainer(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First exec should be user setup (runs as root, no User set)
+	if len(fake.ExecCalls) < 2 {
+		t.Fatalf("expected at least 2 exec calls, got %d", len(fake.ExecCalls))
+	}
+	setupCall := fake.ExecCalls[0]
+	if setupCall.Opts.User != "" {
+		t.Errorf("user setup exec should run as root (empty User), got %q", setupCall.Opts.User)
+	}
+	if setupCall.Opts.Cmd[0] != "sh" || setupCall.Opts.Cmd[1] != "-c" {
+		t.Errorf("user setup should be sh -c script, got %v", setupCall.Opts.Cmd)
+	}
+	script := setupCall.Opts.Cmd[2]
+	if !strings.Contains(script, "deploy") {
+		t.Errorf("user setup script should reference username 'deploy', got: %s", script)
+	}
+	if !strings.Contains(script, "useradd") {
+		t.Errorf("user setup script should contain useradd, got: %s", script)
+	}
+}
+
+func TestCommandExecRunsAsUser(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "ls -la")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second exec is the actual command
+	cmdCall := fake.ExecCalls[1]
+	if cmdCall.Opts.User != "deploy" {
+		t.Errorf("command exec user = %q, want deploy", cmdCall.Opts.User)
+	}
+	if cmdCall.Opts.WorkingDir != "/home/deploy" {
+		t.Errorf("command exec workdir = %q, want /home/deploy", cmdCall.Opts.WorkingDir)
+	}
+}
+
+func TestInteractiveShellRunsAsUser(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/zsh",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	// No SSH_ORIGINAL_COMMAND = interactive shell
+	t.Setenv("SSH_ORIGINAL_COMMAND", "")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shellCall := fake.ExecCalls[1]
+	if shellCall.Opts.User != "deploy" {
+		t.Errorf("shell exec user = %q, want deploy", shellCall.Opts.User)
+	}
+	if shellCall.Opts.WorkingDir != "/home/deploy" {
+		t.Errorf("shell exec workdir = %q, want /home/deploy", shellCall.Opts.WorkingDir)
+	}
+	if !shellCall.Opts.TTY {
+		t.Error("interactive shell should use TTY")
+	}
+}
+
+func TestUserSetupSkippedOnReattach(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy"] = true
+	store := state.NewFakeStore()
+
+	now := time.Now().UTC()
+	_ = store.CreateSession(&state.Session{
+		User:          "deploy",
+		ContainerID:   "existing-id",
+		ContainerName: "podspawn-deploy",
+		Image:         "ubuntu:24.04",
+		Status:        state.StatusRunning,
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+	})
+
+	sess := &Session{
+		Username:    "deploy",
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "echo hi")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only 1 exec (the command), no user setup on reattach
+	if len(fake.ExecCalls) != 1 {
+		t.Fatalf("expected 1 exec call on reattach, got %d", len(fake.ExecCalls))
+	}
+	if fake.ExecCalls[0].Opts.Cmd[2] != "echo hi" {
+		t.Errorf("expected echo hi, got %v", fake.ExecCalls[0].Opts.Cmd)
+	}
+}
+
+func TestUserSetupScriptContainsSudoConfig(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	sess := testSession(fake, "alice")
+
+	t.Setenv("SSH_ORIGINAL_COMMAND", "true")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setupScript := fake.ExecCalls[0].Opts.Cmd[2]
+	if !strings.Contains(setupScript, "sudoers") {
+		t.Error("user setup should configure sudoers")
+	}
+	if !strings.Contains(setupScript, "alice") {
+		t.Error("user setup should reference the username")
+	}
+	if !strings.Contains(setupScript, "NOPASSWD") {
+		t.Error("user setup should configure passwordless sudo")
+	}
+}
+
+func TestUserHomeDirMapping(t *testing.T) {
+	sess := &Session{Username: "karthik"}
+	if sess.userHomeDir() != "/home/karthik" {
+		t.Errorf("home dir = %q, want /home/karthik", sess.userHomeDir())
+	}
+}
