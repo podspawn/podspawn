@@ -11,8 +11,11 @@ func TestGenerateBaseOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "FROM ubuntu:24.04\n" {
-		t.Errorf("got:\n%s\nwant: FROM ubuntu:24.04\\n", got)
+	if !strings.Contains(got, "FROM ubuntu:24.04") {
+		t.Error("expected FROM ubuntu:24.04")
+	}
+	if !strings.Contains(got, "sudo") {
+		t.Error("every Podfile image should include sudo")
 	}
 }
 
@@ -182,7 +185,7 @@ func TestGeneratePorts(t *testing.T) {
 	}
 }
 
-func TestGenerateNoPackages(t *testing.T) {
+func TestGenerateNoPackagesStillIncludesSudo(t *testing.T) {
 	pf := &Podfile{
 		Base:     "ubuntu:24.04",
 		Shell:    "/bin/bash",
@@ -192,8 +195,8 @@ func TestGenerateNoPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, "apt-get") {
-		t.Error("no apt-get line expected with empty packages")
+	if !strings.Contains(got, "sudo") {
+		t.Error("even with no packages, sudo should be included")
 	}
 }
 

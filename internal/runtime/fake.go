@@ -14,7 +14,8 @@ type FakeRuntime struct {
 	Containers  map[string]bool // name → running
 	CreateCalls []ContainerOpts
 	ExecCalls   []FakeExecCall
-	ExitCode    int // returned by Exec
+	ExitCode    int   // default exit code for Exec
+	ExitCodes   []int // per-call exit codes (consumed in order, then falls back to ExitCode)
 	ExecErr     error
 	CreateErr   error
 	StartErr    error
@@ -75,6 +76,10 @@ func (f *FakeRuntime) Exec(_ context.Context, containerID string, opts ExecOpts)
 	f.mu.Lock()
 	f.ExecCalls = append(f.ExecCalls, FakeExecCall{ContainerID: containerID, Opts: opts})
 	exitCode := f.ExitCode
+	if len(f.ExitCodes) > 0 {
+		exitCode = f.ExitCodes[0]
+		f.ExitCodes = f.ExitCodes[1:]
+	}
 	execErr := f.ExecErr
 	cb := opts.ExecIDCallback
 	f.mu.Unlock()

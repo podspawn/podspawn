@@ -84,7 +84,7 @@ func TestRunReattachesToExistingContainer(t *testing.T) {
 
 func TestRunPropagatesExitCode(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
-	fake.ExitCode = 42
+	fake.ExitCodes = []int{0, 42} // user setup succeeds, command returns 42
 
 	sess := testSession(fake, "deploy")
 	t.Setenv("SSH_ORIGINAL_COMMAND", "exit 42")
