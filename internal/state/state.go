@@ -85,14 +85,16 @@ func migrate(db *sql.DB) error {
 	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`)
 
 	var version int
-	err := db.QueryRow(`SELECT version FROM schema_version LIMIT 1`).Scan(&version)
-	if err == sql.ErrNoRows {
-		version = 0
-	} else if err != nil {
+	err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version)
+	if err != nil {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
 
 	if version >= schemaVersion {
+		// Consolidate any duplicate rows left by older versions
+		if err := consolidateSchemaVersion(db, version); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -120,15 +122,24 @@ func migrate(db *sql.DB) error {
 		return fmt.Errorf("creating sessions table: %w", err)
 	}
 
-	if version == 0 {
-		_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (?)`, schemaVersion)
-	} else {
-		_, err = db.Exec(`UPDATE schema_version SET version = ?`, schemaVersion)
-	}
-	if err != nil {
-		return fmt.Errorf("updating schema version: %w", err)
+	if err := consolidateSchemaVersion(db, schemaVersion); err != nil {
+		return err
 	}
 
+	return nil
+}
+
+// consolidateSchemaVersion ensures exactly one row exists with the given version.
+// Handles both old tables (no constraints) and new databases.
+func consolidateSchemaVersion(db *sql.DB, ver int) error {
+	_, err := db.Exec(`DELETE FROM schema_version`)
+	if err != nil {
+		return fmt.Errorf("clearing schema_version: %w", err)
+	}
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (?)`, ver)
+	if err != nil {
+		return fmt.Errorf("setting schema version to %d: %w", ver, err)
+	}
 	return nil
 }
 

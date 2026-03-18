@@ -35,7 +35,7 @@ var removeUserCmd = &cobra.Command{
 		defer func() { _ = store.Close() }()
 
 		// Hold the per-user lock to prevent new sessions during removal
-		unlock, lockErr := lock.Acquire(cfg.State.LockDir, username)
+		unlock, lockErr := lock.Acquire(cmd.Context(), cfg.State.LockDir, username)
 		if lockErr != nil {
 			return fmt.Errorf("acquiring lock for %s: %w", username, lockErr)
 		}
@@ -75,6 +75,11 @@ var removeUserCmd = &cobra.Command{
 
 		if err := os.Remove(keyFile); err != nil {
 			return fmt.Errorf("removing key file: %w", err)
+		}
+
+		unlock()
+		if err := lock.Remove(cfg.State.LockDir, username); err != nil {
+			slog.Warn("failed to remove lock file", "user", username, "error", err)
 		}
 
 		fmt.Fprintf(os.Stderr, "removed user %s (%d session(s) destroyed)\n", username, len(sessions))
