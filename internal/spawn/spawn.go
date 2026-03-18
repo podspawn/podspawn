@@ -73,10 +73,20 @@ fi
 mkdir -p /etc/sudoers.d
 echo '%s ALL=(root) NOPASSWD:ALL' > /etc/sudoers.d/%s
 chmod 0440 /etc/sudoers.d/%s
+RCFILE=""
+case "%s" in
+  */zsh)  RCFILE=/home/%s/.zshrc ;;
+  */bash) RCFILE=/home/%s/.bashrc ;;
+esac
+if [ -n "$RCFILE" ] && [ ! -f "$RCFILE" ]; then
+  touch "$RCFILE"
+  chown 1000:1000 "$RCFILE"
+fi
 `, s.Username, s.Username,
 		s.Username, shell, s.Username,
 		s.Username, s.Username, shell, s.Username, s.Username, s.Username,
-		s.Username, s.Username, s.Username)
+		s.Username, s.Username, s.Username,
+		shell, s.Username, s.Username)
 
 	exitCode, err := s.Runtime.Exec(ctx, containerID, runtime.ExecOpts{
 		Cmd: []string{"sh", "-c", script},
