@@ -600,7 +600,44 @@ func TestReconcileExpiredGracePeriod(t *testing.T) {
 	}
 }
 
-func TestRunWithProjectFailsWithoutPrebuiltImage(t *testing.T) {
+func TestRunWithRegisteredProjectFailsWithoutPrebuiltImage(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), []byte("base: ubuntu:24.04\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:    "deploy",
+		ProjectName: "backend",
+		Project: &config.ProjectConfig{
+			Repo:      "https://github.com/org/backend",
+			LocalPath: projectDir,
+		},
+		Runtime:     fake,
+		Image:       "ubuntu:24.04",
+		Shell:       "/bin/bash",
+		Store:       store,
+		LockDir:     t.TempDir(),
+		GracePeriod: 60 * time.Second,
+		MaxLifetime: 8 * time.Hour,
+		Mode:        "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
+
+	_, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error for missing pre-built image")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "not built") || !strings.Contains(errMsg, "update-project") {
+		t.Errorf("error should guide user to run update-project, got: %s", errMsg)
+	}
+}
+
+func TestRunWithLocalPodfileAutoBuilds(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	store := state.NewFakeStore()
 
@@ -627,13 +664,11 @@ func TestRunWithProjectFailsWithoutPrebuiltImage(t *testing.T) {
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
 	_, err := sess.Run(context.Background())
-	if err == nil {
-		t.Fatal("expected error for missing pre-built image")
+	if err != nil {
+		t.Fatalf("local podfile should auto-build, got: %v", err)
 	}
-	// Should guide user to run update-project
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "not built") || !strings.Contains(errMsg, "update-project") {
-		t.Errorf("error should guide user, got: %s", errMsg)
+	if len(fake.BuildCalls) != 1 {
+		t.Fatalf("expected 1 build call, got %d", len(fake.BuildCalls))
 	}
 }
 
