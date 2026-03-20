@@ -172,11 +172,15 @@ if ! command -v podspawn >/dev/null 2>&1 || [ "$FORCE_INSTALL" = "1" ]; then
         info "installing to ${INSTALL_DIR} (requires sudo)"
         sudo mv "$TMPDIR/podspawn" "$INSTALL_DIR/podspawn"
     fi
-    sudo chown root:root "$INSTALL_DIR/podspawn" 2>/dev/null || true
-    chmod +x "$INSTALL_DIR/podspawn"
+    if [ -w "$INSTALL_DIR" ]; then
+        chmod +x "$INSTALL_DIR/podspawn"
+    else
+        sudo chown root:root "$INSTALL_DIR/podspawn" 2>/dev/null || true
+        sudo chmod +x "$INSTALL_DIR/podspawn"
+    fi
     # macOS quarantines binaries downloaded via curl; strip it so Gatekeeper doesn't block
     if [ "$OS" = "darwin" ]; then
-        xattr -dr com.apple.quarantine "$INSTALL_DIR/podspawn" 2>/dev/null || true
+        sudo xattr -dr com.apple.quarantine "$INSTALL_DIR/podspawn" 2>/dev/null || true
     fi
     ok "installed ${VERSION}"
 fi
