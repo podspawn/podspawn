@@ -133,6 +133,29 @@ func TestAcquireRespectsContextTimeout(t *testing.T) {
 	}
 }
 
+func TestDoubleUnlockDoesNotPanic(t *testing.T) {
+	dir := t.TempDir()
+
+	unlock, err := Acquire(context.Background(), dir, "deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First unlock releases the lock
+	unlock()
+
+	// Second unlock (simulating defer + explicit call in remove_user.go)
+	// should not panic
+	unlock()
+
+	// Lock should still be acquirable after double unlock
+	unlock2, err := Acquire(context.Background(), dir, "deploy")
+	if err != nil {
+		t.Fatalf("lock should be acquirable after double unlock: %v", err)
+	}
+	unlock2()
+}
+
 func TestAcquireRespectsContextCancellation(t *testing.T) {
 	dir := t.TempDir()
 

@@ -12,6 +12,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
@@ -266,8 +267,11 @@ func (d *DockerRuntime) CreateNetwork(ctx context.Context, name string) (string,
 		Labels: map[string]string{"managed-by": "podspawn"},
 	})
 	if err != nil {
-		// If network already exists (e.g., from a crash), reuse it
-		networks, listErr := d.cli.NetworkList(ctx, network.ListOptions{})
+		// If network already exists (e.g., from a crash), reuse it.
+		// Only match networks we created, not random user networks with the same name.
+		networks, listErr := d.cli.NetworkList(ctx, network.ListOptions{
+			Filters: filters.NewArgs(filters.Arg("label", "managed-by=podspawn")),
+		})
 		if listErr == nil {
 			for _, n := range networks {
 				if n.Name == name {

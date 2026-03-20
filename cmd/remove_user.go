@@ -34,12 +34,19 @@ var removeUserCmd = &cobra.Command{
 		}
 		defer func() { _ = store.Close() }()
 
-		// Hold the per-user lock to prevent new sessions during removal
+		// Hold the per-user lock to prevent new sessions during removal.
+		// No defer: we unlock explicitly before lock.Remove to avoid
+		// deleting the file while we still hold the flock.
 		unlock, lockErr := lock.Acquire(cmd.Context(), cfg.State.LockDir, username)
 		if lockErr != nil {
 			return fmt.Errorf("acquiring lock for %s: %w", username, lockErr)
 		}
-		defer unlock()
+		unlocked := false
+		defer func() {
+			if !unlocked {
+				unlock()
+			}
+		}()
 
 		sessions, err := store.ListSessionsByUser(username)
 		if err != nil {
@@ -78,6 +85,7 @@ var removeUserCmd = &cobra.Command{
 		}
 
 		unlock()
+		unlocked = true
 		if err := lock.Remove(cfg.State.LockDir, username); err != nil {
 			slog.Warn("failed to remove lock file", "user", username, "error", err)
 		}

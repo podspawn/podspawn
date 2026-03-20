@@ -2,6 +2,7 @@ package state
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -1077,5 +1078,27 @@ func TestFakeStoreClose(t *testing.T) {
 	fs := NewFakeStore()
 	if err := fs.Close(); err != nil {
 		t.Fatalf("Close should return nil: %v", err)
+	}
+}
+
+func TestOpenCreatesDirectoryWithRestrictedPermissions(t *testing.T) {
+	base := t.TempDir()
+	subdir := filepath.Join(base, "nested", "state")
+	dbPath := filepath.Join(subdir, "test.db")
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	info, err := os.Stat(subdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	perm := info.Mode().Perm()
+	if perm != 0700 {
+		t.Errorf("state directory permissions = %04o, want 0700", perm)
 	}
 }
