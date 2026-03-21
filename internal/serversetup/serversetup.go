@@ -150,12 +150,19 @@ func createDirectories(paths Paths) error {
 	}{
 		{paths.PodspawnDir, 0755},
 		{paths.KeyDir, 0755}, // readable by AuthorizedKeysCommandUser (nobody)
-		{paths.StateDir, 0755},
-		{paths.LockDir, 0755},
+		// State and lock dirs are 1777 (sticky + world-writable) so that
+		// multiple users spawned via sshd can create SQLite WAL/SHM and
+		// lock files. Sticky bit prevents users from deleting each other's files.
+		{paths.StateDir, os.ModeSticky | 0777},
+		{paths.LockDir, os.ModeSticky | 0777},
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d.path, d.perm); err != nil {
 			return fmt.Errorf("creating %s: %w", d.path, err)
+		}
+		// MkdirAll doesn't update permissions on existing directories
+		if err := os.Chmod(d.path, d.perm); err != nil {
+			return fmt.Errorf("setting permissions on %s: %w", d.path, err)
 		}
 	}
 
@@ -174,7 +181,32 @@ func createDirectories(paths Paths) error {
 		}
 	}
 
+	// Write default config.yaml so doctor and other commands detect server mode
+	configPath := filepath.Join(paths.PodspawnDir, "config.yaml")
+	if _, err := os.Stat(configPath); errors.Is(err, fs.ErrNotExist) {
+		if err := os.WriteFile(configPath, defaultConfigYAML(), 0644); err != nil {
+			return fmt.Errorf("creating %s: %w", configPath, err)
+		}
+	}
+
 	return nil
+}
+
+func defaultConfigYAML() []byte {
+	return []byte(`# Podspawn server configuration
+# See https://podspawn.dev/docs/configuration for all options.
+
+defaults:
+  image: ubuntu:24.04
+  shell: /bin/bash
+  cpus: 2.0
+  memory: 2g
+
+session:
+  grace_period: 60s
+  max_lifetime: 8h
+  mode: grace-period
+`)
 }
 
 func hasOurAuthKeysCommand(data []byte) bool {

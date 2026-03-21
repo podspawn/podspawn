@@ -383,3 +383,86 @@ func TestConfigNotFound(t *testing.T) {
 		t.Fatal("expected error for missing sshd_config")
 	}
 }
+
+func TestCreatesConfigYAML(t *testing.T) {
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+	cmd := NewFakeCommander()
+	var out bytes.Buffer
+
+	if err := Run(paths, cmd, Options{}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(paths.PodspawnDir, "config.yaml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("config.yaml not created by server-setup")
+	}
+}
+
+func TestConfigYAMLNotOverwritten(t *testing.T) {
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+
+	os.MkdirAll(paths.PodspawnDir, 0755) //nolint:errcheck
+	configPath := filepath.Join(paths.PodspawnDir, "config.yaml")
+	os.WriteFile(configPath, []byte("defaults:\n  image: custom:latest\n"), 0644) //nolint:errcheck
+
+	cmd := NewFakeCommander()
+	var out bytes.Buffer
+
+	if err := Run(paths, cmd, Options{}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(data), "custom:latest") {
+		t.Error("existing config.yaml should not be overwritten")
+	}
+}
+
+func TestStateDirWorldWritableSticky(t *testing.T) {
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+	cmd := NewFakeCommander()
+	var out bytes.Buffer
+
+	if err := Run(paths, cmd, Options{}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(paths.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := info.Mode()
+	if mode.Perm() != 0777 {
+		t.Errorf("state dir permissions = %04o, want 0777", mode.Perm())
+	}
+	if mode&os.ModeSticky == 0 {
+		t.Error("state dir should have sticky bit set")
+	}
+}
+
+func TestLockDirWorldWritableSticky(t *testing.T) {
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+	cmd := NewFakeCommander()
+	var out bytes.Buffer
+
+	if err := Run(paths, cmd, Options{}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(paths.LockDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := info.Mode()
+	if mode.Perm() != 0777 {
+		t.Errorf("lock dir permissions = %04o, want 0777", mode.Perm())
+	}
+	if mode&os.ModeSticky == 0 {
+		t.Error("lock dir should have sticky bit set")
+	}
+}
