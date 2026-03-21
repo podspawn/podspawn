@@ -500,14 +500,9 @@ fi
 if [ "$MODE" = "server" ]; then
     USERNAME=$(whoami)
 
-    step "2" "Configuring sshd"
-    if grep -qi "authorizedkeyscommand.*podspawn" /etc/ssh/sshd_config 2>/dev/null; then
-        ok "already configured"
-    else
-        info "running server-setup (requires sudo)"
-        sudo podspawn server-setup
-        ok "sshd configured"
-    fi
+    step "2" "Server setup"
+    sudo podspawn server-setup
+    ok "done"
 
     step "3" "Setting up your user"
     if [ -f "/etc/podspawn/keys/$USERNAME" ]; then

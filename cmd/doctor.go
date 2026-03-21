@@ -17,6 +17,9 @@ var doctorCmd = &cobra.Command{
 	Long:  `Runs diagnostic checks on Docker, sshd, permissions, and configuration. Use this to debug setup issues.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		serverConfigured, _ := fileExists("/etc/podspawn/config.yaml")
+		if !serverConfigured {
+			serverConfigured = sshdHasPodspawn()
+		}
 
 		checkCfg := doctor.CheckConfig{
 			SSHDConfigPath:   "/etc/ssh/sshd_config",
