@@ -17,7 +17,7 @@ Requirements:
 ## Running tests
 
 ```bash
-make test              # unit tests (231 tests, ~5s)
+make test              # unit tests (~5s)
 make test-integration  # Docker runtime tests (requires Docker)
 make test-sshd         # full SSH pipeline tests (requires Docker)
 make test-sshd-all     # sshd tests across Ubuntu, Debian, Rocky, Alpine
@@ -28,7 +28,7 @@ The pre-commit hook runs `gofmt`, `go vet`, `golangci-lint`, and all unit tests.
 
 ## Code style
 
-Read `CLAUDE.md` for the full style guide. The short version:
+The short version:
 
 - **Boring over clever.** Simple code that works beats elegant code that doesn't.
 - **No restating comments.** Comment *why*, not *what*.
