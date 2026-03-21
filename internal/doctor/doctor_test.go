@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -149,5 +150,51 @@ func TestRunAllOutput(t *testing.T) {
 	// Output should contain [pass], [warn], or [FAIL] markers
 	if len(output) == 0 {
 		t.Error("expected non-empty output")
+	}
+}
+
+func TestClassifySSHDError_RootAlwaysFails(t *testing.T) {
+	r := classifySSHDError("Could not load host key: /etc/ssh/ssh_host_rsa_key", true)
+	if r.Status != Fail {
+		t.Errorf("root + permission error should still Fail, got %v", r.Status)
+	}
+	if !strings.Contains(r.Detail, "Could not load host key") {
+		t.Error("detail should include stderr")
+	}
+}
+
+func TestClassifySSHDError_NonRootPermissionWarn(t *testing.T) {
+	cases := []string{
+		"Could not load host key: /etc/ssh/ssh_host_rsa_key\nCould not load host key: /etc/ssh/ssh_host_ecdsa_key\nno hostkeys available",
+		"Permission denied",
+		"bad permissions",
+	}
+	for _, stderr := range cases {
+		r := classifySSHDError(stderr, false)
+		if r.Status != Warn {
+			t.Errorf("non-root + %q should Warn, got %v: %s", stderr, r.Status, r.Detail)
+		}
+	}
+}
+
+func TestClassifySSHDError_NonRootConfigFail(t *testing.T) {
+	r := classifySSHDError("/etc/ssh/sshd_config line 42: Bad configuration option: Bogus", false)
+	if r.Status != Fail {
+		t.Errorf("non-root + config error should Fail, got %v", r.Status)
+	}
+	if !strings.Contains(r.Detail, "Bad configuration option") {
+		t.Error("detail should include actual error")
+	}
+}
+
+func TestClassifySSHDError_Truncation(t *testing.T) {
+	long := strings.Repeat("x", 300)
+	r := classifySSHDError(long, true)
+	if !strings.HasSuffix(r.Detail, "...") {
+		t.Error("expected truncated detail to end with ...")
+	}
+	// "sshd -t failed: " (17) + 200 + "..." (3) = 220
+	if len(r.Detail) > 220 {
+		t.Errorf("detail too long: %d chars", len(r.Detail))
 	}
 }
