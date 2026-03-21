@@ -141,11 +141,42 @@ func (c CheckConfig) checkSSHDVersion(_ context.Context) Result {
 }
 
 func (c CheckConfig) checkSSHDConfig(_ context.Context) Result {
-	err := exec.Command("sshd", "-t").Run()
+	out, err := exec.Command("sshd", "-t").CombinedOutput()
 	if err != nil {
-		return Result{"sshd config valid", Fail, "sshd -t failed; fix your sshd_config before proceeding"}
+		return classifySSHDError(string(out), os.Geteuid() == 0)
 	}
 	return Result{"sshd config valid", Pass, ""}
+}
+
+// sshdPermissionPatterns are stderr substrings that indicate sshd -t failed
+// due to host key permission issues rather than config errors.
+var sshdPermissionPatterns = []string{
+	"Could not load host key",
+	"no hostkeys available",
+	"Permission denied",
+	"bad permissions",
+}
+
+func classifySSHDError(stderr string, isRoot bool) Result {
+	if !isRoot {
+		for _, pat := range sshdPermissionPatterns {
+			if strings.Contains(stderr, pat) {
+				return Result{"sshd config valid", Warn,
+					"sshd -t needs root to read host keys; re-run with sudo to fully validate"}
+			}
+		}
+	}
+
+	detail := "sshd -t failed: " + truncate(stderr, 200)
+	return Result{"sshd config valid", Fail, detail}
+}
+
+func truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func (c CheckConfig) checkAuthKeysCommand(_ context.Context) Result {
