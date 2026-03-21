@@ -58,8 +58,12 @@ func showConfig(path string) error {
 	if clientCfg.Servers.Default != "" {
 		fmt.Printf("servers.default = %s\n", clientCfg.Servers.Default)
 	}
-	for host, server := range clientCfg.Servers.Mappings {
-		fmt.Printf("servers.mappings.%s = %s\n", host, server)
+	for host, entry := range clientCfg.Servers.Mappings {
+		if entry.Mode != "" {
+			fmt.Printf("servers.mappings.%s = %s (mode: %s)\n", host, entry.Host, entry.Mode)
+		} else {
+			fmt.Printf("servers.mappings.%s = %s\n", host, entry.Host)
+		}
 	}
 	if clientCfg.Servers.Default == "" && len(clientCfg.Servers.Mappings) == 0 {
 		fmt.Println("(empty)")
@@ -77,13 +81,34 @@ func setConfig(path, key, value string) error {
 	case key == "servers.default":
 		clientCfg.Servers.Default = value
 	case strings.HasPrefix(key, "servers.mappings."):
-		host := strings.TrimPrefix(key, "servers.mappings.")
+		rest := strings.TrimPrefix(key, "servers.mappings.")
 		if clientCfg.Servers.Mappings == nil {
-			clientCfg.Servers.Mappings = make(map[string]string)
+			clientCfg.Servers.Mappings = make(map[string]*config.ServerEntry)
 		}
-		clientCfg.Servers.Mappings[host] = value
+		// Check if the key ends with .host or .mode (field access).
+		// Otherwise treat the entire rest as hostname (backward compatible).
+		var host, field string
+		if strings.HasSuffix(rest, ".host") {
+			host = strings.TrimSuffix(rest, ".host")
+			field = "host"
+		} else if strings.HasSuffix(rest, ".mode") {
+			host = strings.TrimSuffix(rest, ".mode")
+			field = "mode"
+		} else {
+			host = rest
+			field = "host"
+		}
+		if clientCfg.Servers.Mappings[host] == nil {
+			clientCfg.Servers.Mappings[host] = &config.ServerEntry{}
+		}
+		switch field {
+		case "host":
+			clientCfg.Servers.Mappings[host].Host = value
+		case "mode":
+			clientCfg.Servers.Mappings[host].Mode = value
+		}
 	default:
-		return fmt.Errorf("unknown config key %q; valid keys: servers.default, servers.mappings.<host>", key)
+		return fmt.Errorf("unknown config key %q; valid keys: servers.default, servers.mappings.<host>[.host|.mode]", key)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

@@ -72,8 +72,8 @@ func TestSetConfigMapping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := clientCfg.Servers.Mappings["work.pod"]; got != "devbox.internal" {
-		t.Errorf("servers.mappings[work.pod] = %q, want devbox.internal", got)
+	if got := clientCfg.Servers.Mappings["work.pod"]; got == nil || got.Host != "devbox.internal" {
+		t.Errorf("servers.mappings[work.pod].host = %v, want devbox.internal", got)
 	}
 }
 

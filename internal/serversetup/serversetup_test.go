@@ -27,6 +27,7 @@ func testPaths(t *testing.T) Paths {
 		KeyDir:       filepath.Join(root, "etc", "podspawn", "keys"),
 		StateDir:     filepath.Join(root, "var", "lib", "podspawn"),
 		LockDir:      filepath.Join(root, "var", "lib", "podspawn", "locks"),
+		HomesDir:     filepath.Join(root, "var", "lib", "podspawn", "homes"),
 		EmergencyKey: filepath.Join(root, "etc", "podspawn", "emergency.keys"),
 	}
 }
@@ -441,6 +442,25 @@ func TestStateDirWorldWritableSticky(t *testing.T) {
 	}
 	if mode&os.ModeSticky == 0 {
 		t.Error("state dir should have sticky bit set")
+	}
+}
+
+func TestCreatesHomesDir(t *testing.T) {
+	paths := testPaths(t)
+	writeSSHDConfig(t, paths.SSHDConfig, minimalSSHDConfig)
+	cmd := NewFakeCommander()
+	var out bytes.Buffer
+
+	if err := Run(paths, cmd, Options{}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(paths.HomesDir)
+	if err != nil {
+		t.Fatalf("homes dir not created: %v", err)
+	}
+	if info.Mode().Perm() != 0711 {
+		t.Errorf("homes dir permissions = %04o, want 0711", info.Mode().Perm())
 	}
 }
 

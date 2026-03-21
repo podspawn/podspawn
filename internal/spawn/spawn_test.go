@@ -2031,3 +2031,129 @@ func TestLegacyUserSetupFailureCleansUpContainer(t *testing.T) {
 		t.Error("container should be removed after user setup failure")
 	}
 }
+
+func TestDisconnectPersistentModeKeepsContainer(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+	sess := testSession(fake, "deploy")
+	sess.Store = store
+	sess.LockDir = t.TempDir()
+	sess.Mode = "persistent"
+	sess.HomesDir = t.TempDir()
+
+	t.Setenv("SSH_ORIGINAL_COMMAND", "echo hello")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sess.Disconnect(context.Background())
+
+	// Container should still exist
+	if _, ok := fake.Containers["podspawn-deploy"]; !ok {
+		t.Fatal("persistent container should not be destroyed on disconnect")
+	}
+
+	// Session should still be in the store with 0 connections
+	got, _ := store.GetSession("deploy", "")
+	if got == nil {
+		t.Fatal("persistent session should remain in store")
+	}
+	if got.Connections != 0 {
+		t.Errorf("connections = %d, want 0", got.Connections)
+	}
+	if got.Status != "running" {
+		t.Errorf("status = %q, want running (no grace period for persistent)", got.Status)
+	}
+}
+
+func TestHomeDirMountPersistentOnly(t *testing.T) {
+	sess := &Session{
+		Username: "deploy",
+		Mode:     "persistent",
+		HomesDir: t.TempDir(),
+	}
+
+	mounts := sess.homeDirMount()
+	if len(mounts) != 1 {
+		t.Fatalf("expected 1 mount for persistent mode, got %d", len(mounts))
+	}
+	if mounts[0].Target != "/home/deploy" {
+		t.Errorf("mount target = %q, want /home/deploy", mounts[0].Target)
+	}
+
+	// Verify host dir was created
+	hostDir := filepath.Join(sess.HomesDir, "deploy")
+	info, err := os.Stat(hostDir)
+	if err != nil {
+		t.Fatalf("host home dir not created: %v", err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("host home dir permissions = %04o, want 0700", info.Mode().Perm())
+	}
+}
+
+func TestHomeDirMountNilForEphemeral(t *testing.T) {
+	sess := &Session{
+		Username: "deploy",
+		Mode:     "grace-period",
+		HomesDir: t.TempDir(),
+	}
+
+	mounts := sess.homeDirMount()
+	if mounts != nil {
+		t.Errorf("expected nil mounts for ephemeral mode, got %v", mounts)
+	}
+}
+
+func TestApplyUserOverridesMode(t *testing.T) {
+	sess := &Session{
+		Username: "deploy",
+		Mode:     "grace-period",
+		UserOverrides: &config.UserOverrides{
+			Mode: "persistent",
+		},
+	}
+
+	sess.applyUserOverrides()
+
+	if sess.Mode != "persistent" {
+		t.Errorf("mode = %q, want persistent (from user override)", sess.Mode)
+	}
+}
+
+func TestProjectModeOverridesUserOverride(t *testing.T) {
+	sess := &Session{
+		Username: "deploy",
+		Mode:     "grace-period",
+		UserOverrides: &config.UserOverrides{
+			Mode: "persistent",
+		},
+		Project: &config.ProjectConfig{
+			Mode: "destroy-on-disconnect",
+		},
+	}
+
+	sess.applyUserOverrides()
+
+	if sess.Mode != "destroy-on-disconnect" {
+		t.Errorf("mode = %q, want destroy-on-disconnect (project overrides user)", sess.Mode)
+	}
+}
+
+func TestProjectModeWithoutUserOverrides(t *testing.T) {
+	sess := &Session{
+		Username: "deploy",
+		Mode:     "grace-period",
+		Project: &config.ProjectConfig{
+			Mode: "persistent",
+		},
+	}
+
+	sess.applyUserOverrides()
+
+	if sess.Mode != "persistent" {
+		t.Errorf("mode = %q, want persistent (project override without user overrides)", sess.Mode)
+	}
+}

@@ -54,8 +54,9 @@ type SessionConfig struct {
 }
 
 type StateConfig struct {
-	DBPath  string `yaml:"db_path"`
-	LockDir string `yaml:"lock_dir"`
+	DBPath   string `yaml:"db_path"`
+	LockDir  string `yaml:"lock_dir"`
+	HomesDir string `yaml:"homes_dir"`
 }
 
 type LogConfig struct {
@@ -80,8 +81,9 @@ func Defaults() *Config {
 			Mode:        "grace-period",
 		},
 		State: StateConfig{
-			DBPath:  "/var/lib/podspawn/state.db",
-			LockDir: "/var/lib/podspawn/locks",
+			DBPath:   "/var/lib/podspawn/state.db",
+			LockDir:  "/var/lib/podspawn/locks",
+			HomesDir: "/var/lib/podspawn/homes",
 		},
 		Security: SecurityConfig{
 			CapDrop:    []string{"ALL"},
@@ -106,8 +108,19 @@ func LocalDefaults() *Config {
 	cfg := Defaults()
 	cfg.State.DBPath = filepath.Join(podspawnDir, "state.db")
 	cfg.State.LockDir = filepath.Join(podspawnDir, "locks")
+	cfg.State.HomesDir = filepath.Join(podspawnDir, "homes")
 	cfg.Session.MaxLifetime = "24h"
 	return cfg
+}
+
+var validModes = map[string]bool{
+	"grace-period":          true,
+	"destroy-on-disconnect": true,
+	"persistent":            true,
+}
+
+func ValidMode(mode string) bool {
+	return validModes[mode]
 }
 
 func (c *Config) Validate() error {
@@ -119,6 +132,9 @@ func (c *Config) Validate() error {
 	}
 	if _, err := ParseMemory(c.Defaults.Memory); err != nil {
 		return fmt.Errorf("invalid defaults.memory %q: %w", c.Defaults.Memory, err)
+	}
+	if !ValidMode(c.Session.Mode) {
+		return fmt.Errorf("invalid session.mode %q: must be grace-period, destroy-on-disconnect, or persistent", c.Session.Mode)
 	}
 	return nil
 }

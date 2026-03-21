@@ -64,6 +64,7 @@ func buildLocalSession(name string) (*localSession, error) {
 		GracePeriod: gracePeriod,
 		MaxLifetime: maxLifetime,
 		Mode:        cfg.Session.Mode,
+		HomesDir:    cfg.State.HomesDir,
 		Security:    cfg.Security,
 		MaxPerUser:  cfg.Resources.MaxPerUser,
 		Store:       store,

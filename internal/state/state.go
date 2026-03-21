@@ -29,6 +29,7 @@ type Session struct {
 	MaxLifetime   time.Time
 	NetworkID     string // Docker network for companion services
 	ServiceIDs    string // comma-separated container IDs
+	Mode          string // grace-period, destroy-on-disconnect, persistent
 }
 
 type SessionStore interface {
@@ -52,7 +53,7 @@ type Store struct {
 
 var _ SessionStore = (*Store)(nil)
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 func Open(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -116,6 +117,7 @@ func migrate(db *sql.DB) error {
 			max_lifetime   DATETIME NOT NULL,
 			network_id     TEXT NOT NULL DEFAULT '',
 			service_ids    TEXT NOT NULL DEFAULT '',
+			mode           TEXT NOT NULL DEFAULT 'grace-period',
 			PRIMARY KEY (user, project)
 		)`)
 	if err != nil {
@@ -148,18 +150,22 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) CreateSession(sess *Session) error {
+	mode := sess.Mode
+	if mode == "" {
+		mode = "grace-period"
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (user, project, container_id, container_name, image, status, connections, created_at, last_activity, max_lifetime, network_id, service_ids)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (user, project, container_id, container_name, image, status, connections, created_at, last_activity, max_lifetime, network_id, service_ids, mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.User, sess.Project, sess.ContainerID, sess.ContainerName, sess.Image,
 		sess.Status, sess.Connections,
 		sess.CreatedAt.UTC(), sess.LastActivity.UTC(), sess.MaxLifetime.UTC(),
-		sess.NetworkID, sess.ServiceIDs,
+		sess.NetworkID, sess.ServiceIDs, mode,
 	)
 	return err
 }
 
-const sessionColumns = `user, project, container_id, container_name, image, status, connections, grace_expiry, created_at, last_activity, max_lifetime, network_id, service_ids`
+const sessionColumns = `user, project, container_id, container_name, image, status, connections, grace_expiry, created_at, last_activity, max_lifetime, network_id, service_ids, mode`
 
 func scanSession(scanner interface{ Scan(...any) error }) (*Session, error) {
 	sess := &Session{}
@@ -167,7 +173,7 @@ func scanSession(scanner interface{ Scan(...any) error }) (*Session, error) {
 		&sess.User, &sess.Project, &sess.ContainerID, &sess.ContainerName, &sess.Image,
 		&sess.Status, &sess.Connections, &sess.GraceExpiry,
 		&sess.CreatedAt, &sess.LastActivity, &sess.MaxLifetime,
-		&sess.NetworkID, &sess.ServiceIDs,
+		&sess.NetworkID, &sess.ServiceIDs, &sess.Mode,
 	)
 	return sess, err
 }
@@ -223,21 +229,21 @@ func (s *Store) DeleteSession(user, project string) error {
 
 func (s *Store) ExpiredGracePeriods() ([]*Session, error) {
 	return s.queryMultiple(
-		`SELECT `+sessionColumns+` FROM sessions WHERE status = 'grace_period' AND grace_expiry < ?`,
+		`SELECT `+sessionColumns+` FROM sessions WHERE status = 'grace_period' AND grace_expiry < ? AND mode != 'persistent'`,
 		time.Now().UTC(),
 	)
 }
 
 func (s *Store) ExpiredLifetimes() ([]*Session, error) {
 	return s.queryMultiple(
-		`SELECT `+sessionColumns+` FROM sessions WHERE max_lifetime < ?`,
+		`SELECT `+sessionColumns+` FROM sessions WHERE max_lifetime < ? AND mode != 'persistent'`,
 		time.Now().UTC(),
 	)
 }
 
 func (s *Store) StaleZeroConnections(user, project string) (*Session, error) {
 	row := s.db.QueryRow(
-		`SELECT `+sessionColumns+` FROM sessions WHERE user = ? AND project = ? AND connections = 0 AND grace_expiry IS NULL`,
+		`SELECT `+sessionColumns+` FROM sessions WHERE user = ? AND project = ? AND connections = 0 AND grace_expiry IS NULL AND mode != 'persistent'`,
 		user, project)
 
 	sess, err := scanSession(row)

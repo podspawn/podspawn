@@ -15,6 +15,7 @@ type ProjectConfig struct {
 	LocalPath   string `yaml:"local_path"`
 	PodfileHash string `yaml:"podfile_hash"`
 	ImageTag    string `yaml:"image_tag"`
+	Mode        string `yaml:"mode"`
 }
 
 func LoadProjects(path string) (map[string]ProjectConfig, error) {

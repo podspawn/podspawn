@@ -50,8 +50,23 @@ func (lc *LocalConfig) ApplyTo(cfg *Config) {
 }
 
 type ServerRouting struct {
-	Default  string            `yaml:"default"`
-	Mappings map[string]string `yaml:"mappings"`
+	Default  string                  `yaml:"default"`
+	Mappings map[string]*ServerEntry `yaml:"mappings"`
+}
+
+type ServerEntry struct {
+	Host string `yaml:"host"`
+	Mode string `yaml:"mode"` // "ephemeral" | "persistent" | "" (unknown)
+}
+
+// UnmarshalYAML supports both string values ("server.com") and object values ({host: server.com, mode: persistent}).
+func (e *ServerEntry) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		e.Host = value.Value
+		return nil
+	}
+	type plain ServerEntry
+	return value.Decode((*plain)(e))
 }
 
 // Missing file is an error, unlike Load(), since there are no useful client defaults.
@@ -77,8 +92,8 @@ func (c *ClientConfig) ResolveHost(hostname string) (string, error) {
 		return hostname, nil
 	}
 
-	if server, ok := c.Servers.Mappings[hostname]; ok {
-		return server, nil
+	if entry, ok := c.Servers.Mappings[hostname]; ok {
+		return entry.Host, nil
 	}
 
 	if c.Servers.Default != "" {

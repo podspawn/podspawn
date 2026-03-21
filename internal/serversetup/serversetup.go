@@ -21,6 +21,7 @@ type Paths struct {
 	KeyDir       string
 	StateDir     string
 	LockDir      string
+	HomesDir     string
 	EmergencyKey string
 }
 
@@ -32,6 +33,7 @@ func DefaultPaths(binaryPath string) Paths {
 		KeyDir:       "/etc/podspawn/keys",
 		StateDir:     "/var/lib/podspawn",
 		LockDir:      "/var/lib/podspawn/locks",
+		HomesDir:     "/var/lib/podspawn/homes",
 		EmergencyKey: "/etc/podspawn/emergency.keys",
 	}
 }
@@ -155,6 +157,7 @@ func createDirectories(paths Paths) error {
 		// lock files. Sticky bit prevents users from deleting each other's files.
 		{paths.StateDir, os.ModeSticky | 0777},
 		{paths.LockDir, os.ModeSticky | 0777},
+		{paths.HomesDir, 0711}, // world-executable for traversal, not listable
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d.path, d.perm); err != nil {
@@ -205,7 +208,11 @@ defaults:
 session:
   grace_period: 60s
   max_lifetime: 8h
+  # Modes: grace-period (default), destroy-on-disconnect, persistent
   mode: grace-period
+
+# state:
+#   homes_dir: /var/lib/podspawn/homes
 `)
 }
 

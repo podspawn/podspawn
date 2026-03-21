@@ -90,6 +90,20 @@ var removeUserCmd = &cobra.Command{
 			slog.Warn("failed to remove lock file", "user", username, "error", err)
 		}
 
+		purge, _ := cmd.Flags().GetBool("purge")
+		homeDir := filepath.Join(cfg.State.HomesDir, username)
+		if _, statErr := os.Stat(homeDir); statErr == nil {
+			if purge {
+				if err := os.RemoveAll(homeDir); err != nil {
+					slog.Warn("failed to remove persistent home dir", "path", homeDir, "error", err)
+				} else {
+					slog.Info("removed persistent home dir", "path", homeDir)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "NOTE: persistent home dir exists at %s; use --purge to delete it\n", homeDir)
+			}
+		}
+
 		fmt.Fprintf(os.Stderr, "removed user %s (%d session(s) destroyed)\n", username, len(sessions))
 		return nil
 	},
@@ -97,5 +111,6 @@ var removeUserCmd = &cobra.Command{
 
 func init() {
 	removeUserCmd.Flags().Bool("force", false, "Destroy active sessions without confirmation")
+	removeUserCmd.Flags().Bool("purge", false, "Also delete the user's persistent home directory")
 	rootCmd.AddCommand(removeUserCmd)
 }

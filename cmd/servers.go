@@ -28,19 +28,24 @@ var serversCmd = &cobra.Command{
 			return nil
 		}
 
-		servers := make(map[string]string)
-		if clientCfg.Servers.Default != "" {
-			servers["(default)"] = clientCfg.Servers.Default
+		type serverInfo struct {
+			Host string
+			Mode string
 		}
-		for host, server := range clientCfg.Servers.Mappings {
-			servers[host] = server
+		servers := make(map[string]serverInfo)
+		if clientCfg.Servers.Default != "" {
+			servers["(default)"] = serverInfo{Host: clientCfg.Servers.Default}
+		}
+		for host, entry := range clientCfg.Servers.Mappings {
+			servers[host] = serverInfo{Host: entry.Host, Mode: entry.Mode}
 		}
 
-		servers["localhost.pod"] = "127.0.0.1"
+		servers["localhost.pod"] = serverInfo{Host: "127.0.0.1"}
 
 		type probeResult struct {
 			Label   string
 			Host    string
+			Mode    string
 			Latency time.Duration
 			Err     error
 		}
@@ -49,11 +54,11 @@ var serversCmd = &cobra.Command{
 		var mu sync.Mutex
 		var wg sync.WaitGroup
 
-		for label, host := range servers {
+		for label, info := range servers {
 			wg.Add(1)
-			go func(label, host string) {
+			go func(label string, info serverInfo) {
 				defer wg.Done()
-				addr := net.JoinHostPort(host, "22")
+				addr := net.JoinHostPort(info.Host, "22")
 				start := time.Now()
 				conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 				latency := time.Since(start)
@@ -61,9 +66,9 @@ var serversCmd = &cobra.Command{
 					_ = conn.Close()
 				}
 				mu.Lock()
-				results = append(results, probeResult{label, host, latency, err})
+				results = append(results, probeResult{label, info.Host, info.Mode, latency, err})
 				mu.Unlock()
-			}(label, host)
+			}(label, info)
 		}
 		wg.Wait()
 
@@ -72,10 +77,16 @@ var serversCmd = &cobra.Command{
 		})
 
 		for _, r := range results {
-			if r.Err != nil {
-				_, _ = fmt.Fprintf(os.Stdout, "  %-25s %s  unreachable\n", r.Label, r.Host)
+			modeStr := ""
+			if r.Mode != "" {
+				modeStr = fmt.Sprintf("  %-12s", r.Mode)
 			} else {
-				_, _ = fmt.Fprintf(os.Stdout, "  %-25s %s  ok (%dms)\n", r.Label, r.Host, r.Latency.Milliseconds())
+				modeStr = fmt.Sprintf("  %-12s", "")
+			}
+			if r.Err != nil {
+				_, _ = fmt.Fprintf(os.Stdout, "  %-20s %-25s%s  unreachable\n", r.Label, r.Host, modeStr)
+			} else {
+				_, _ = fmt.Fprintf(os.Stdout, "  %-20s %-25s%s  ok (%dms)\n", r.Label, r.Host, modeStr, r.Latency.Milliseconds())
 			}
 		}
 		return nil

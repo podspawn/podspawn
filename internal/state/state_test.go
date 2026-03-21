@@ -1081,6 +1081,87 @@ func TestFakeStoreClose(t *testing.T) {
 	}
 }
 
+func TestExpiredLifetimesSkipsPersistent(t *testing.T) {
+	store := openTestDB(t)
+	now := time.Now().UTC()
+
+	ephemeral := &Session{
+		User: "deploy", Project: "web", ContainerID: "e1", ContainerName: "podspawn-deploy-web",
+		Image: "ubuntu:24.04", Status: "running", Connections: 1,
+		CreatedAt: now.Add(-10 * time.Hour), LastActivity: now,
+		MaxLifetime: now.Add(-1 * time.Hour), Mode: "grace-period",
+	}
+	persistent := &Session{
+		User: "deploy", Project: "api", ContainerID: "p1", ContainerName: "podspawn-deploy-api",
+		Image: "ubuntu:24.04", Status: "running", Connections: 0,
+		CreatedAt: now.Add(-48 * time.Hour), LastActivity: now.Add(-24 * time.Hour),
+		MaxLifetime: now.Add(-12 * time.Hour), Mode: "persistent",
+	}
+
+	for _, sess := range []*Session{ephemeral, persistent} {
+		if err := store.CreateSession(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	expired, err := store.ExpiredLifetimes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expired) != 1 {
+		t.Fatalf("expected 1 expired (ephemeral only), got %d", len(expired))
+	}
+	if expired[0].Project != "web" {
+		t.Errorf("expected ephemeral session 'web', got %q", expired[0].Project)
+	}
+}
+
+func TestStaleZeroConnectionsSkipsPersistent(t *testing.T) {
+	store := openTestDB(t)
+	now := time.Now().UTC()
+
+	sess := &Session{
+		User: "deploy", Project: "", ContainerID: "p1", ContainerName: "podspawn-deploy",
+		Image: "ubuntu:24.04", Status: "running", Connections: 0,
+		CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		Mode: "persistent",
+	}
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	stale, err := store.StaleZeroConnections("deploy", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale != nil {
+		t.Fatal("persistent session with 0 connections should not be returned as stale")
+	}
+}
+
+func TestSessionModeRoundTrip(t *testing.T) {
+	store := openTestDB(t)
+	now := time.Now().UTC()
+
+	sess := &Session{
+		User: "deploy", Project: "backend", ContainerID: "c1", ContainerName: "podspawn-deploy-backend",
+		Image: "ubuntu:24.04", Status: "running", Connections: 1,
+		CreatedAt: now, LastActivity: now, MaxLifetime: now.Add(8 * time.Hour),
+		Mode: "persistent",
+	}
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetSession("deploy", "backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "persistent" {
+		t.Errorf("mode = %q, want persistent", got.Mode)
+	}
+}
+
 func TestOpenCreatesDirectoryWithRestrictedPermissions(t *testing.T) {
 	base := t.TempDir()
 	subdir := filepath.Join(base, "nested", "state")

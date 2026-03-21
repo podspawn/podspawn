@@ -38,7 +38,8 @@ type Session struct {
 	LockDir       string
 	GracePeriod   time.Duration
 	MaxLifetime   time.Duration
-	Mode          string // "grace-period" | "destroy-on-disconnect"
+	Mode          string // "grace-period" | "destroy-on-disconnect" | "persistent"
+	HomesDir      string // base dir for persistent home bind mounts
 	Security      config.SecurityConfig
 	MaxPerUser    int           // 0 = unlimited
 	Audit         *audit.Logger // nil = no audit logging
@@ -233,7 +234,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		Hostname:       s.hostname(),
 		Cmd:            []string{"sleep", "infinity"},
 		Env:            env,
-		Mounts:         s.agentMount(),
+		Mounts:         s.containerMounts(),
 		CPUs:           s.CPUs,
 		Memory:         s.Memory,
 		NetworkID:      networkID,
@@ -277,6 +278,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		MaxLifetime:   now.Add(s.MaxLifetime),
 		NetworkID:     networkID,
 		ServiceIDs:    strings.Join(serviceIDs, ","),
+		Mode:          s.Mode,
 	}); err != nil {
 		_ = s.Runtime.RemoveContainer(ctx, containerName)
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
@@ -302,7 +304,7 @@ func (s *Session) ensureContainerLegacy(ctx context.Context, containerName strin
 			Hostname:       s.hostname(),
 			Image:          s.Image,
 			Cmd:            []string{"sleep", "infinity"},
-			Mounts:         s.agentMount(),
+			Mounts:         s.containerMounts(),
 			CPUs:           s.CPUs,
 			Memory:         s.Memory,
 			CapDrop:        sec.CapDrop,
@@ -447,6 +449,31 @@ func (s *Session) agentMount() []runtime.Mount {
 	}}
 }
 
+func (s *Session) containerMounts() []runtime.Mount {
+	var mounts []runtime.Mount
+	mounts = append(mounts, s.agentMount()...)
+	mounts = append(mounts, s.homeDirMount()...)
+	if len(mounts) == 0 {
+		return nil
+	}
+	return mounts
+}
+
+func (s *Session) homeDirMount() []runtime.Mount {
+	if s.Mode != "persistent" || s.HomesDir == "" {
+		return nil
+	}
+	hostHome := filepath.Join(s.HomesDir, s.Username)
+	if err := os.MkdirAll(hostHome, 0700); err != nil {
+		slog.Warn("failed to create persistent home dir", "path", hostHome, "error", err)
+		return nil
+	}
+	return []runtime.Mount{{
+		Source: hostHome,
+		Target: "/home/" + s.Username,
+	}}
+}
+
 func (s *Session) prepareAgentForwarding() []string {
 	hostSock := os.Getenv("SSH_AUTH_SOCK")
 	if hostSock == "" {
@@ -538,6 +565,10 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 func (s *Session) applyUserOverrides() {
 	uo := s.UserOverrides
 	if uo == nil {
+		// Still apply project mode override even without user overrides
+		if s.Project != nil && s.Project.Mode != "" {
+			s.Mode = s.Project.Mode
+		}
 		return
 	}
 	if uo.Image != "" {
@@ -554,6 +585,9 @@ func (s *Session) applyUserOverrides() {
 	if uo.Shell != "" {
 		s.Shell = uo.Shell
 	}
+	if uo.Mode != "" {
+		s.Mode = uo.Mode
+	}
 	if uo.Dotfiles != nil && s.pf != nil {
 		s.pf.Dotfiles = &podfile.DotfilesConfig{
 			Repo:    uo.Dotfiles.Repo,
@@ -567,6 +601,11 @@ func (s *Session) applyUserOverrides() {
 		for k, v := range uo.Env {
 			s.pf.Env[k] = v
 		}
+	}
+
+	// Project mode takes highest priority (overrides both server default and user override)
+	if s.Project != nil && s.Project.Mode != "" {
+		s.Mode = s.Project.Mode
 	}
 }
 
@@ -688,6 +727,11 @@ func (s *Session) Disconnect(ctx context.Context) {
 
 	if count > 0 {
 		slog.Info("session still active", "user", s.Username, "connections", count)
+		return
+	}
+
+	if s.Mode == "persistent" {
+		slog.Info("persistent session, container stays alive", "user", s.Username, "project", s.ProjectName)
 		return
 	}
 

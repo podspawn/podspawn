@@ -98,6 +98,9 @@ func (f *FakeStore) ExpiredGracePeriods() ([]*Session, error) {
 	now := time.Now().UTC()
 	var out []*Session
 	for _, sess := range f.Sessions {
+		if sess.Mode == "persistent" {
+			continue
+		}
 		if sess.Status == StatusGracePeriod && sess.GraceExpiry.Valid && sess.GraceExpiry.Time.Before(now) {
 			cp := *sess
 			out = append(out, &cp)
@@ -112,6 +115,9 @@ func (f *FakeStore) ExpiredLifetimes() ([]*Session, error) {
 	now := time.Now().UTC()
 	var out []*Session
 	for _, sess := range f.Sessions {
+		if sess.Mode == "persistent" {
+			continue
+		}
 		if sess.MaxLifetime.Before(now) {
 			cp := *sess
 			out = append(out, &cp)
@@ -125,6 +131,9 @@ func (f *FakeStore) StaleZeroConnections(user, project string) (*Session, error)
 	defer f.mu.Unlock()
 	sess, ok := f.Sessions[sessionKey(user, project)]
 	if !ok {
+		return nil, nil
+	}
+	if sess.Mode == "persistent" {
 		return nil, nil
 	}
 	if sess.Connections == 0 && !sess.GraceExpiry.Valid {

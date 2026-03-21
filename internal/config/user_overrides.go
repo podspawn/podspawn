@@ -15,6 +15,7 @@ type UserOverrides struct {
 	CPUs     float64           `yaml:"cpus"`
 	Memory   string            `yaml:"memory"`
 	Shell    string            `yaml:"shell"`
+	Mode     string            `yaml:"mode"`
 	Env      map[string]string `yaml:"env"`
 	Dotfiles *DotfilesOverride `yaml:"dotfiles"`
 }

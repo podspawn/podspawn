@@ -24,7 +24,7 @@ servers:
 	if len(cfg.Servers.Mappings) != 2 {
 		t.Errorf("mappings count = %d, want 2", len(cfg.Servers.Mappings))
 	}
-	if cfg.Servers.Mappings["work.pod"] != "devbox.company.com" {
+	if cfg.Servers.Mappings["work.pod"].Host != "devbox.company.com" {
 		t.Errorf("work.pod mapping = %q, want devbox.company.com", cfg.Servers.Mappings["work.pod"])
 	}
 }
@@ -67,7 +67,7 @@ func TestResolveHostMapped(t *testing.T) {
 	cfg := &ClientConfig{
 		Servers: ServerRouting{
 			Default:  "fallback.example.com",
-			Mappings: map[string]string{"work.pod": "devbox.company.com"},
+			Mappings: map[string]*ServerEntry{"work.pod": {Host: "devbox.company.com"}},
 		},
 	}
 	got, err := cfg.ResolveHost("work.pod")
@@ -83,7 +83,7 @@ func TestResolveHostFallsBackToDefault(t *testing.T) {
 	cfg := &ClientConfig{
 		Servers: ServerRouting{
 			Default:  "fallback.example.com",
-			Mappings: map[string]string{"work.pod": "devbox.company.com"},
+			Mappings: map[string]*ServerEntry{"work.pod": {Host: "devbox.company.com"}},
 		},
 	}
 	got, err := cfg.ResolveHost("mystery.pod")
@@ -98,7 +98,7 @@ func TestResolveHostFallsBackToDefault(t *testing.T) {
 func TestResolveHostNoDefaultNoMapping(t *testing.T) {
 	cfg := &ClientConfig{
 		Servers: ServerRouting{
-			Mappings: map[string]string{"work.pod": "devbox.company.com"},
+			Mappings: map[string]*ServerEntry{"work.pod": {Host: "devbox.company.com"}},
 		},
 	}
 	_, err := cfg.ResolveHost("unknown.pod")
@@ -205,6 +205,55 @@ local:
 	}
 	if cfg.Local.Memory != "4g" {
 		t.Errorf("local.memory = %q, want 4g", cfg.Local.Memory)
+	}
+}
+
+func TestServerEntryBackwardCompatible(t *testing.T) {
+	// Old format: mappings as plain strings
+	oldYAML := `
+servers:
+  mappings:
+    work.pod: devbox.company.com
+    gpu.pod: gpu-server.com
+`
+	cfg, err := LoadClient(writeTemp(t, oldYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Servers.Mappings["work.pod"].Host != "devbox.company.com" {
+		t.Errorf("work.pod host = %q, want devbox.company.com", cfg.Servers.Mappings["work.pod"].Host)
+	}
+	if cfg.Servers.Mappings["gpu.pod"].Host != "gpu-server.com" {
+		t.Errorf("gpu.pod host = %q, want gpu-server.com", cfg.Servers.Mappings["gpu.pod"].Host)
+	}
+}
+
+func TestServerEntryWithMode(t *testing.T) {
+	yaml := `
+servers:
+  mappings:
+    work.pod:
+      host: devbox.company.com
+      mode: persistent
+    ci.pod: ci-server.com
+`
+	cfg, err := LoadClient(writeTemp(t, yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := cfg.Servers.Mappings["work.pod"]
+	if work.Host != "devbox.company.com" {
+		t.Errorf("work.pod host = %q, want devbox.company.com", work.Host)
+	}
+	if work.Mode != "persistent" {
+		t.Errorf("work.pod mode = %q, want persistent", work.Mode)
+	}
+	ci := cfg.Servers.Mappings["ci.pod"]
+	if ci.Host != "ci-server.com" {
+		t.Errorf("ci.pod host = %q, want ci-server.com", ci.Host)
+	}
+	if ci.Mode != "" {
+		t.Errorf("ci.pod mode = %q, want empty", ci.Mode)
 	}
 }
 
