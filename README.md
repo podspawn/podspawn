@@ -1,16 +1,10 @@
 # podspawn
 
 [![CI](https://github.com/podspawn/podspawn/actions/workflows/ci.yml/badge.svg)](https://github.com/podspawn/podspawn/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/podspawn/podspawn)](https://github.com/podspawn/podspawn/releases/latest)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
-Ephemeral dev containers. Locally or over SSH.
-
-## The idea
-
-You need a dev environment. Not a VM (too heavy), not a raw container (too bare), not a cloud workspace (too slow to spin up, too expensive to keep).
-
-podspawn gives you **named machines** backed by Docker containers, configured with a Podfile (packages, services, env vars, hooks). Locally, it's zero-friction: no SSH, no root, no daemon. On a server, it hooks into your existing sshd so teammates just `ssh` in.
-
-One binary. Local or remote. Same workflow.
+Dev containers backed by Docker. Locally or over SSH.
 
 ## Quick start
 
@@ -18,19 +12,31 @@ One binary. Local or remote. Same workflow.
 curl -sSfL https://podspawn.dev/up | bash
 ```
 
-### Local mode (no SSH, no root)
+## What it does
+
+You want a dev environment. Not a VM, not a raw container, not a cloud workspace.
+
+podspawn gives you **named machines** backed by Docker containers, configured with a Podfile (packages, services, env vars, hooks). Locally, there's no SSH, no root, no daemon. On a server, it hooks into your existing sshd so teammates just `ssh` in.
+
+One binary. Local or remote. Same workflow.
+
+## Local mode
+
+No SSH, no root, no daemon. Just Docker.
 
 ```bash
 podspawn create dev                    # create a machine
 podspawn shell dev                     # attach to it
-podspawn run scratch                   # ephemeral throwaway
+podspawn run scratch                   # create + attach, ephemeral
 podspawn list                          # see machines
 podspawn stop dev                      # destroy it
 ```
 
-Just install podspawn + have Docker (OrbStack, Docker Desktop, Colima, Podman).
+Works with OrbStack, Docker Desktop, Colima, or Podman.
 
-### Server mode (for teams)
+## Server mode
+
+Hook into your existing sshd. Every SSH feature works for free.
 
 ```
 ssh deploy@backend.pod
@@ -42,7 +48,7 @@ ssh deploy@backend.pod
   -> you're in a fully configured dev environment
 ```
 
-Every SSH feature works: SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway. Teammates need zero client-side install.
+SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway, Cursor. Teammates need zero client-side install.
 
 ## Podfile
 
@@ -70,20 +76,42 @@ on_start: "echo welcome back"
 
 Companion services get their own containers on a shared Docker network with DNS discovery.
 
-## Features
+## What's working
 
-- **Local machines** -- `podspawn create/run/shell`, no SSH needed, no root
-- **Server mode** -- hooks into native sshd, every SSH feature works
-- **Podfile environments** -- packages, services, dotfiles, hooks
-- **devcontainer.json fallback** -- existing devcontainers work too
-- **Security by default** -- cap-drop ALL, no-new-privileges, PID limits, per-user network isolation
-- **gVisor support** -- `runtime: runsc` in config for kernel-level isolation
-- **Grace period lifecycle** -- survive network blips, configurable TTLs
-- **Session state** -- SQLite with connection counting, per-user file locking
-- **Cleanup daemon** -- expires grace periods, enforces lifetimes, reconciles orphans
-- **Audit logging** -- structured JSON-lines for every session event
-- **Prometheus metrics** -- `podspawn status --prometheus`
-- **Multi-arch** -- linux/darwin/windows, amd64/arm64, deb/rpm, Homebrew
+### Local mode
+- [x] Named machines (`create`, `run`, `shell`, `list`, `stop`)
+- [x] Podfile environments (packages, services, env vars, hooks)
+- [x] Default Podfile at `~/.podspawn/podfile.yaml`
+- [x] Interactive onboarding wizard
+- [ ] `--with` flag for quick package overrides
+- [ ] Branch-based dev containers (`-b feat/auth`)
+
+### Server mode
+- [x] Native sshd hook via `AuthorizedKeysCommand`
+- [x] Three session modes: grace-period, destroy-on-disconnect, persistent
+- [x] Persistent containers with bind-mounted home directories
+- [x] Per-user bridge network isolation
+- [x] Companion services on shared Docker network
+- [x] SFTP, scp, rsync, port forwarding, agent forwarding
+- [x] VS Code Remote, JetBrains Gateway, Cursor
+- [x] Non-root container users with passwordless sudo
+- [x] Project routing via `.pod` hostnames
+- [ ] Client-side `.pod` routing to multiple servers
+- [ ] Per-project branch selection over SSH
+
+### Infrastructure
+- [x] SQLite session state (WAL mode, busy timeout, crash recovery)
+- [x] Per-user file locking
+- [x] Cleanup daemon (grace periods, max lifetimes, orphan reconciliation)
+- [x] Structured audit logging (JSON-lines)
+- [x] Prometheus-compatible metrics (`podspawn status --prometheus`)
+- [x] Security hardening (cap-drop ALL, no-new-privileges, PID limits)
+- [x] gVisor runtime support (`runtime: runsc` in config)
+- [x] Multi-arch releases (linux/darwin/windows, amd64/arm64)
+- [x] deb, rpm, Homebrew
+- [x] Self-update (`podspawn update`)
+- [ ] Shell completions (bash, zsh, fish)
+- [ ] Machine snapshots
 
 ## Commands
 
@@ -98,7 +126,7 @@ podspawn stop              # Destroy a machine
 # Server mode
 podspawn server-setup      # Configure sshd
 podspawn add-user          # Register SSH keys
-podspawn add-project       # Clone repo + build Podfile image
+podspawn add-project       # Register a project with Podfile
 podspawn doctor            # Preflight checks
 
 # Client mode
@@ -108,6 +136,19 @@ podspawn ssh               # SSH wrapper with .pod suffix
 podspawn open              # VS Code / Cursor launcher
 ```
 
+## Comparison
+
+| | Codespaces | Coder | DevPod | podspawn |
+|---|---|---|---|---|
+| Self-hosted | no | yes | yes | yes |
+| SSH daemon | custom | custom | custom | native sshd |
+| Config format | devcontainer.json | Terraform | devcontainer.json | Podfile |
+| Companion services | Docker Compose | manual | manual | first-class |
+| Local mode | no | no | yes | yes |
+| Persistent + ephemeral | persistent only | persistent only | persistent only | both |
+| Complexity | high | high | medium | low |
+| Open source | no | yes | yes | yes (AGPL-3.0) |
+
 ## Requirements
 
 **Local mode**: Docker (OrbStack, Docker Desktop, Colima, Podman)
@@ -116,22 +157,15 @@ podspawn open              # VS Code / Cursor launcher
 
 ## Documentation
 
-Full docs at [podspawn.dev](https://podspawn.dev), including:
-- [Tutorial](https://podspawn.dev/docs/guides/tutorial) -- end-to-end walkthrough
-- [CLI Reference](https://podspawn.dev/docs/cli/server-commands) -- every command
-- [Podfile Spec](https://podspawn.dev/docs/podfile/overview) -- environment definition
-- [Security](https://podspawn.dev/docs/guides/security-hardening) -- hardening guide
+Full docs at [podspawn.dev](https://podspawn.dev):
+- [Tutorial](https://podspawn.dev/docs/guides/tutorial)
+- [CLI Reference](https://podspawn.dev/docs/cli/server-commands)
+- [Podfile Spec](https://podspawn.dev/docs/podfile/overview)
+- [Security Hardening](https://podspawn.dev/docs/guides/security-hardening)
 
-## Why podspawn
+## Status
 
-| | OrbStack | DevPod | podspawn |
-|---|---|---|---|
-| Platform | macOS only | macOS/Linux/Windows | macOS/Linux/Windows |
-| Config | GUI | devcontainer.json | Podfile (simpler) |
-| Services | manual | manual | first-class |
-| Remote/teams | no | limited | native SSH |
-| AI agent sandbox | no | no | isolated containers |
-| Open source | no | yes | yes (AGPL-3.0) |
+**Alpha.** Core features work and are tested (290+ unit tests, integration tests across 4 Linux distros). API may change between minor versions. Current release: [v0.4.3](https://github.com/podspawn/podspawn/releases/tag/v0.4.3).
 
 ## License
 
