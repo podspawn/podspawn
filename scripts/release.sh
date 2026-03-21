@@ -5,10 +5,35 @@ set -euo pipefail
 # Default: patch
 
 BUMP="${1:-patch}"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
-# Get current version from latest tag
-CURRENT=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+err() { printf "${RED}✗ %s${RESET}\n" "$*" >&2; exit 1; }
+ok()  { printf "${GREEN}✓${RESET} %s\n" "$*"; }
+
+# --- preflight ---
+
+printf "${BOLD}Preflight checks${RESET}\n"
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+[[ "$BRANCH" == "main" ]] || err "on branch '$BRANCH', not main"
+ok "on main"
+
+[[ -z "$(git status --porcelain)" ]] || err "uncommitted changes"
+ok "working tree clean"
+
+git fetch origin --tags --quiet
+[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || err "local differs from origin/main (push or pull first)"
+ok "up to date with origin"
+
+CURRENT=$(git describe --tags --abbrev=0 2>/dev/null) || err "no reachable tags (run git fetch --tags)"
 CURRENT="${CURRENT#v}"
+ok "current version: v${CURRENT}"
+
+# --- bump ---
 
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
@@ -21,22 +46,23 @@ esac
 
 NEW="v${MAJOR}.${MINOR}.${PATCH}"
 
-echo "Current: v${CURRENT}"
-echo "New:     ${NEW}"
+echo ""
+printf "${BOLD}v${CURRENT}${RESET} → ${BOLD}${GREEN}${NEW}${RESET} (${BUMP})\n"
 echo ""
 
-# Confirm
 read -p "Tag and push ${NEW}? [y/N] " -r
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Aborted."
     exit 0
 fi
 
-# Tag and push
+echo ""
 git tag -s "${NEW}" -m "Release ${NEW}"
+ok "tagged ${NEW}"
+
 git push origin "${NEW}"
+ok "pushed ${NEW}"
 
 echo ""
-echo "Tagged ${NEW} and pushed."
-echo "GitHub Actions will build and release automatically."
-echo "Watch: https://github.com/podspawn/podspawn/actions"
+printf "${GREEN}${BOLD}Done.${RESET} goreleaser will pick it up.\n"
+echo "https://github.com/podspawn/podspawn/actions"
