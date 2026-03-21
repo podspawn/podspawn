@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/spf13/cobra"
@@ -46,7 +47,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("checking config %s: %w", configPath, statErr)
 		}
 
-		if !configExists && localModeCommands[cmd.Name()] {
+		if !configExists && localModeCommands[cmd.Name()] && !sshdHasPodspawn() {
 			isLocalMode = true
 			loaded := config.LocalDefaults()
 			loadLocalOverrides(loaded)
@@ -122,4 +123,25 @@ func CloseLog() {
 
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// sshdHasPodspawn checks whether sshd_config has an AuthorizedKeysCommand
+// pointing to podspawn. Used as a fallback to detect server mode when
+// /etc/podspawn/config.yaml is missing.
+func sshdHasPodspawn() bool {
+	data, err := os.ReadFile("/etc/ssh/sshd_config")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "authorizedkeyscommand") && strings.Contains(trimmed, "podspawn auth-keys") {
+			return true
+		}
+	}
+	return false
 }
