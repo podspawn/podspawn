@@ -44,7 +44,7 @@ func (lc *LocalConfig) ApplyTo(cfg *Config) {
 	if lc.MaxLifetime != "" {
 		cfg.Session.MaxLifetime = lc.MaxLifetime
 	}
-	if lc.Mode != "" {
+	if lc.Mode != "" && ValidMode(lc.Mode) {
 		cfg.Session.Mode = lc.Mode
 	}
 }

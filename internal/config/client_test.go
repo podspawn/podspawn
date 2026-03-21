@@ -161,6 +161,16 @@ func TestLocalConfigApplyToOverridesFields(t *testing.T) {
 	}
 }
 
+func TestLocalConfigApplyToIgnoresInvalidMode(t *testing.T) {
+	cfg := LocalDefaults()
+	lc := LocalConfig{Mode: "bogus-mode"}
+	lc.ApplyTo(cfg)
+
+	if cfg.Session.Mode != "grace-period" {
+		t.Errorf("invalid mode should be ignored, got %q", cfg.Session.Mode)
+	}
+}
+
 func TestLocalConfigApplyToSkipsZeroValues(t *testing.T) {
 	cfg := LocalDefaults()
 	lc := LocalConfig{Image: "debian:12"} // only image set

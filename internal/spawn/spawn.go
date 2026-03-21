@@ -588,7 +588,11 @@ func (s *Session) applyUserOverrides() {
 		s.Shell = uo.Shell
 	}
 	if uo.Mode != "" {
-		s.Mode = uo.Mode
+		if config.ValidMode(uo.Mode) {
+			s.Mode = uo.Mode
+		} else {
+			slog.Warn("ignoring invalid mode in user override", "user", s.Username, "mode", uo.Mode)
+		}
 	}
 	if uo.Dotfiles != nil && s.pf != nil {
 		s.pf.Dotfiles = &podfile.DotfilesConfig{
@@ -607,7 +611,11 @@ func (s *Session) applyUserOverrides() {
 
 	// Project mode takes highest priority (overrides both server default and user override)
 	if s.Project != nil && s.Project.Mode != "" {
-		s.Mode = s.Project.Mode
+		if config.ValidMode(s.Project.Mode) {
+			s.Mode = s.Project.Mode
+		} else {
+			slog.Warn("ignoring invalid mode in project config", "project", s.ProjectName, "mode", s.Project.Mode)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 func TestResolveStopArgServerMode(t *testing.T) {
 	isLocalMode = false
+	defer func() { isLocalMode = false }()
 	tests := []struct {
 		arg         string
 		wantUser    string
