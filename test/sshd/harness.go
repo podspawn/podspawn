@@ -190,12 +190,17 @@ func (h *SSHHarness) dialE(username string) (*ssh.Client, error) {
 // initStateDB creates the SQLite database with world-writable permissions.
 // podspawn runs as the authenticated user, so the first user to connect would
 // own the DB + WAL files, locking out other users. We initialize as root, then
-// chmod so all test users can write.
+// make the directory sticky+world-writable (1777) so any user can create
+// WAL/SHM files. The DB file itself is also set to 666.
 func initStateDB(ctx context.Context, ctr testcontainers.Container) error {
 	cmds := [][]string{
+		// State and lock dirs need 1777 so multiple UIDs can create files
+		{"chmod", "1777", "/var/lib/podspawn", "/var/lib/podspawn/locks"},
 		// Run spawn as root; it creates the DB via state.Open(), then fails trying
 		// to exec into a container (which is fine, the DB is already created).
 		{"sh", "-c", "/usr/local/bin/podspawn spawn --user _dbinit 2>/dev/null; true"},
+		// Make DB and sidecar files world-writable. SQLite recreates WAL/SHM
+		// during checkpoints, but with a 1777 directory any user can do that.
 		{"sh", "-c", "chmod 666 /var/lib/podspawn/state.db /var/lib/podspawn/state.db-wal /var/lib/podspawn/state.db-shm 2>/dev/null; true"},
 	}
 	for _, cmd := range cmds {

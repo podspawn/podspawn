@@ -74,12 +74,30 @@ func Open(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("setting busy timeout: %w", err)
 	}
 
+	// WAL mode creates -wal and -shm sidecar files. Match their permissions
+	// to the DB file so other users (via sshd) can write to them.
+	relaxSidecarPerms(dbPath)
+
 	if err := migrate(db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrating schema: %w", err)
 	}
 
 	return &Store{db: db}, nil
+}
+
+// relaxSidecarPerms sets WAL/SHM file permissions to match the main DB file.
+// Without this, the first user to open the DB creates sidecar files with their
+// umask, blocking other users from writing.
+func relaxSidecarPerms(dbPath string) {
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		return
+	}
+	perm := info.Mode().Perm()
+	for _, suffix := range []string{"-wal", "-shm"} {
+		_ = os.Chmod(dbPath+suffix, perm)
+	}
 }
 
 func migrate(db *sql.DB) error {
