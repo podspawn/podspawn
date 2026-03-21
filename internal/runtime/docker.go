@@ -34,6 +34,10 @@ func NewDockerRuntime() (*DockerRuntime, error) {
 	return &DockerRuntime{cli: cli}, nil
 }
 
+func (d *DockerRuntime) Close() error {
+	return d.cli.Close()
+}
+
 func (d *DockerRuntime) ContainerExists(ctx context.Context, name string) (bool, error) {
 	_, err := d.cli.ContainerInspect(ctx, name)
 	if err != nil {
@@ -157,10 +161,6 @@ func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecO
 		return -1, fmt.Errorf("creating exec in %s: %w", containerID, err)
 	}
 
-	if opts.ExecIDCallback != nil {
-		opts.ExecIDCallback(exec.ID)
-	}
-
 	attach, err := d.cli.ContainerExecAttach(ctx, exec.ID, container.ExecAttachOptions{
 		Tty: opts.TTY,
 	})
@@ -168,6 +168,10 @@ func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecO
 		return -1, fmt.Errorf("attaching to exec %s: %w", exec.ID, err)
 	}
 	defer attach.Close()
+
+	if opts.ExecIDCallback != nil {
+		opts.ExecIDCallback(exec.ID)
+	}
 
 	if opts.Stdin != nil {
 		go func() {

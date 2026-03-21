@@ -578,7 +578,9 @@ func (s *Session) applyUserOverrides() {
 		s.CPUs = uo.CPUs
 	}
 	if uo.Memory != "" {
-		if mem, err := config.ParseMemory(uo.Memory); err == nil {
+		if mem, err := config.ParseMemory(uo.Memory); err != nil {
+			slog.Warn("ignoring invalid memory in user override", "user", s.Username, "memory", uo.Memory, "error", err)
+		} else {
 			s.Memory = mem
 		}
 	}
@@ -663,7 +665,11 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 		s.CPUs = pf.Resources.CPUs
 	}
 	if pf.Resources.Memory != "" {
-		mem, _ := config.ParseMemory(pf.Resources.Memory)
+		mem, err := config.ParseMemory(pf.Resources.Memory)
+		if err != nil {
+			_ = s.Runtime.RemoveNetwork(ctx, networkID)
+			return "", nil, "", nil, fmt.Errorf("invalid podfile memory %q: %w", pf.Resources.Memory, err)
+		}
 		s.Memory = mem
 	}
 	if pf.Shell != "" {

@@ -257,6 +257,38 @@ servers:
 	}
 }
 
+func TestResolveHostNilEntryFallsBackToDefault(t *testing.T) {
+	cfg := &ClientConfig{
+		Servers: ServerRouting{
+			Default:  "fallback.example.com",
+			Mappings: map[string]*ServerEntry{"null.pod": nil},
+		},
+	}
+	got, err := cfg.ResolveHost("null.pod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "fallback.example.com" {
+		t.Errorf("nil entry should fall back to default, got %q", got)
+	}
+}
+
+func TestResolveHostEmptyHostFallsBackToDefault(t *testing.T) {
+	cfg := &ClientConfig{
+		Servers: ServerRouting{
+			Default:  "fallback.example.com",
+			Mappings: map[string]*ServerEntry{"empty.pod": {Host: ""}},
+		},
+	}
+	got, err := cfg.ResolveHost("empty.pod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "fallback.example.com" {
+		t.Errorf("empty host should fall back to default, got %q", got)
+	}
+}
+
 func TestResolveHostBarePodSuffix(t *testing.T) {
 	cfg := &ClientConfig{
 		Servers: ServerRouting{Default: "fallback.example.com"},

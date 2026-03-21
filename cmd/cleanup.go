@@ -29,6 +29,7 @@ var cleanupCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("connecting to docker: %w", err)
 		}
+		defer func() { _ = rt.Close() }()
 
 		daemon, _ := cmd.Flags().GetBool("daemon")
 		intervalStr, _ := cmd.Flags().GetString("interval")

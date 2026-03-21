@@ -12,7 +12,9 @@ import (
 )
 
 func DestroySession(ctx context.Context, rt runtime.Runtime, store state.SessionStore, sess *state.Session) error {
-	_ = rt.RemoveContainer(ctx, sess.ContainerName)
+	if err := rt.RemoveContainer(ctx, sess.ContainerName); err != nil {
+		slog.Warn("failed to remove container", "container", sess.ContainerName, "error", err)
+	}
 
 	if sess.ServiceIDs != "" {
 		for _, id := range strings.Split(sess.ServiceIDs, ",") {
@@ -20,11 +22,15 @@ func DestroySession(ctx context.Context, rt runtime.Runtime, store state.Session
 			if id == "" {
 				continue
 			}
-			_ = rt.RemoveContainer(ctx, id)
+			if err := rt.RemoveContainer(ctx, id); err != nil {
+				slog.Warn("failed to remove service container", "id", id, "error", err)
+			}
 		}
 	}
 	if sess.NetworkID != "" {
-		_ = rt.RemoveNetwork(ctx, sess.NetworkID)
+		if err := rt.RemoveNetwork(ctx, sess.NetworkID); err != nil {
+			slog.Warn("failed to remove network", "network", sess.NetworkID, "error", err)
+		}
 	}
 
 	return store.DeleteSession(sess.User, sess.Project)
@@ -36,13 +42,16 @@ func ExpireGracePeriods(ctx context.Context, rt runtime.Runtime, store state.Ses
 		slog.Error("failed to query expired grace periods", "error", err)
 		return 0
 	}
+	destroyed := 0
 	for _, sess := range sessions {
 		slog.Info("grace period expired, destroying", "user", sess.User, "project", sess.Project, "container", sess.ContainerName)
 		if err := DestroySession(ctx, rt, store, sess); err != nil {
 			slog.Error("failed to destroy expired session", "user", sess.User, "error", err)
+			continue
 		}
+		destroyed++
 	}
-	return len(sessions)
+	return destroyed
 }
 
 func EnforceMaxLifetimes(ctx context.Context, rt runtime.Runtime, store state.SessionStore) int {
@@ -51,13 +60,16 @@ func EnforceMaxLifetimes(ctx context.Context, rt runtime.Runtime, store state.Se
 		slog.Error("failed to query expired lifetimes", "error", err)
 		return 0
 	}
+	destroyed := 0
 	for _, sess := range sessions {
 		slog.Info("max lifetime exceeded, destroying", "user", sess.User, "project", sess.Project, "container", sess.ContainerName)
 		if err := DestroySession(ctx, rt, store, sess); err != nil {
 			slog.Error("failed to destroy expired session", "user", sess.User, "error", err)
+			continue
 		}
+		destroyed++
 	}
-	return len(sessions)
+	return destroyed
 }
 
 func ReconcileOrphans(ctx context.Context, rt runtime.Runtime, store state.SessionStore) int {

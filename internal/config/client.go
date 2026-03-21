@@ -92,7 +92,7 @@ func (c *ClientConfig) ResolveHost(hostname string) (string, error) {
 		return hostname, nil
 	}
 
-	if entry, ok := c.Servers.Mappings[hostname]; ok {
+	if entry, ok := c.Servers.Mappings[hostname]; ok && entry != nil && entry.Host != "" {
 		return entry.Host, nil
 	}
 
