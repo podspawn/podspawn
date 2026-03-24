@@ -1,0 +1,6 @@
+base: ubuntu:24.04
+packages:
+  - git
+  - curl
+  - ca-certificates
+shell: /bin/bash

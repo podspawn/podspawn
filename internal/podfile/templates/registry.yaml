@@ -1,0 +1,53 @@
+schema_version: 1
+
+bases:
+  - name: ubuntu-dev
+    file: bases/ubuntu-dev.yaml
+    description: "Ubuntu 24.04 with common dev tools"
+
+  - name: minimal
+    file: bases/minimal.yaml
+    description: "Bare Ubuntu 24.04"
+
+templates:
+  - name: go
+    file: templates/go.yaml
+    description: "Go development environment"
+    detect:
+      files: [go.mod, go.sum]
+      priority: 10
+
+  - name: node
+    file: templates/node.yaml
+    description: "Node.js development environment"
+    detect:
+      files: [package.json]
+      priority: 10
+
+  - name: python
+    file: templates/python.yaml
+    description: "Python development environment"
+    detect:
+      files: [pyproject.toml, setup.py, requirements.txt]
+      priority: 10
+
+  - name: rust
+    file: templates/rust.yaml
+    description: "Rust development environment"
+    detect:
+      files: [Cargo.toml]
+      priority: 10
+
+  - name: fullstack
+    file: templates/fullstack.yaml
+    description: "Full-stack (Node + Go + Postgres + Redis)"
+    detect:
+      files: [package.json, go.mod]
+      priority: 20
+
+  - name: minimal
+    file: templates/minimal.yaml
+    description: "Minimal Ubuntu environment"
+    detect:
+      files: []
+      priority: 0

@@ -1,0 +1,16 @@
+base: ubuntu:24.04
+packages:
+  - git
+  - curl
+  - wget
+  - ripgrep
+  - fzf
+  - neovim
+  - jq
+  - htop
+  - tree
+  - unzip
+  - make
+  - build-essential
+  - ca-certificates
+shell: /bin/bash

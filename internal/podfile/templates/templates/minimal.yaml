@@ -1,0 +1,10 @@
+# Minimal development environment
+base: ubuntu:24.04
+packages:
+  - git
+  - curl
+  - ca-certificates
+shell: /bin/bash
+resources:
+  cpus: 1.0
+  memory: 2g
