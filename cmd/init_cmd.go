@@ -33,14 +33,13 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	outPath := filepath.Join(cwd, "podfile.yaml")
 	if _, err := os.Stat(outPath); err == nil {
-		if yes {
-			return fmt.Errorf("podfile.yaml already exists (use --force to overwrite)")
-		}
-		fmt.Print("podfile.yaml already exists. Overwrite? [y/N] ")
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		if strings.TrimSpace(strings.ToLower(answer)) != "y" {
-			return fmt.Errorf("aborted")
+		if !yes {
+			fmt.Print("podfile.yaml already exists. Overwrite? [y/N] ")
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			if strings.TrimSpace(strings.ToLower(answer)) != "y" {
+				return fmt.Errorf("aborted")
+			}
 		}
 	}
 
@@ -81,11 +80,11 @@ func runInit(cmd *cobra.Command, _ []string) error {
 func runInitWizard(templateData []byte, templateName string) ([]byte, error) {
 	reader := bufio.NewReader(os.Stdin)
 
-	pf, err := podfile.Parse(strings.NewReader(string(templateData)))
+	rawPf, err := podfile.ParseRaw(strings.NewReader(string(templateData)))
 	if err != nil {
-		// Template might use extends; fall back to raw output
 		return templateData, nil
 	}
+	pf := &rawPf.Podfile
 
 	// Base image
 	fmt.Fprintf(os.Stderr, "Base image? [%s] ", pf.Base)
