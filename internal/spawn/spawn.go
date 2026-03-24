@@ -542,9 +542,14 @@ func (s *Session) ensurePodfileParsed() {
 		slog.Warn("could not load podfile for hooks", "error", err)
 		return
 	}
-	pf, err := podfile.Parse(bytes.NewReader(raw))
+	rawPf, err := podfile.ParseRaw(bytes.NewReader(raw))
 	if err != nil {
 		slog.Warn("could not parse podfile for hooks", "error", err)
+		return
+	}
+	pf, err := podfile.ResolveExtends(rawPf, s.Project.LocalPath)
+	if err != nil {
+		slog.Warn("could not resolve extends for hooks", "error", err)
 		return
 	}
 	s.pf = pf
