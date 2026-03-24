@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+type PortBinding struct {
+	ContainerPort int
+	HostPort      int
+	Protocol      string // "tcp" or "udp"
+}
+
 type ContainerOpts struct {
 	Name        string
 	Image       string
@@ -20,6 +26,7 @@ type ContainerOpts struct {
 	NetworkID   string
 	NetworkName string // DNS alias on the network
 
+	PortBindings   []PortBinding
 	CapDrop        []string
 	CapAdd         []string
 	SecurityOpt    []string

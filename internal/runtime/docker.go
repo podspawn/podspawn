@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 )
 
 type DockerRuntime struct {
@@ -104,6 +105,19 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 	if opts.RuntimeName != "" {
 		hostCfg.Runtime = opts.RuntimeName
 	}
+	if len(opts.PortBindings) > 0 {
+		hostCfg.PortBindings = nat.PortMap{}
+		for _, pb := range opts.PortBindings {
+			proto := pb.Protocol
+			if proto == "" {
+				proto = "tcp"
+			}
+			port, _ := nat.NewPort(proto, fmt.Sprintf("%d", pb.ContainerPort))
+			hostCfg.PortBindings[port] = []nat.PortBinding{
+				{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", pb.HostPort)},
+			}
+		}
+	}
 
 	var networkCfg *network.NetworkingConfig
 	if opts.NetworkID != "" {
@@ -128,6 +142,17 @@ func (d *DockerRuntime) CreateContainer(ctx context.Context, opts ContainerOpts)
 	}
 	if opts.User != "" {
 		containerCfg.User = opts.User
+	}
+	if len(opts.PortBindings) > 0 {
+		containerCfg.ExposedPorts = nat.PortSet{}
+		for _, pb := range opts.PortBindings {
+			proto := pb.Protocol
+			if proto == "" {
+				proto = "tcp"
+			}
+			port, _ := nat.NewPort(proto, fmt.Sprintf("%d", pb.ContainerPort))
+			containerCfg.ExposedPorts[port] = struct{}{}
+		}
 	}
 
 	resp, err := d.cli.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, nil, opts.Name)
