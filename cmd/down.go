@@ -29,14 +29,15 @@ func runDown(cmd *cobra.Command, _ []string) error {
 	}
 
 	nameOverride, _ := cmd.Flags().GetString("name")
+	// clean flag is declared for future volume removal support
+	// clean, _ := cmd.Flags().GetBool("clean")
 
 	sessionName := nameOverride
 	if sessionName == "" {
-		// Try to read Podfile for name field
 		pfName := ""
 		if raw, findErr := podfile.FindAndRead(cwd); findErr == nil {
-			if pf, parseErr := podfile.Parse(bytes.NewReader(raw)); parseErr == nil {
-				pfName = pf.Name
+			if rawPf, parseErr := podfile.ParseRaw(bytes.NewReader(raw)); parseErr == nil {
+				pfName = rawPf.Name
 			}
 		}
 		sessionName = podfile.SessionName(cwd, pfName)
