@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/cleanup"
@@ -29,8 +31,7 @@ func runDown(cmd *cobra.Command, _ []string) error {
 	}
 
 	nameOverride, _ := cmd.Flags().GetString("name")
-	// clean flag is declared for future volume removal support
-	// clean, _ := cmd.Flags().GetBool("clean")
+	clean, _ := cmd.Flags().GetBool("clean")
 
 	sessionName := nameOverride
 	if sessionName == "" {
@@ -49,7 +50,43 @@ func runDown(cmd *cobra.Command, _ []string) error {
 	}
 	defer ls.Close()
 
-	return destroySessionByName(ls, sessionName)
+	if err := destroySessionByName(ls, sessionName); err != nil {
+		return err
+	}
+
+	if clean {
+		removeServiceVolumes(ls, cwd)
+	}
+	return nil
+}
+
+func removeServiceVolumes(ls *localSession, podfileDir string) {
+	raw, err := podfile.FindAndRead(podfileDir)
+	if err != nil {
+		return
+	}
+	rawPf, err := podfile.ParseRaw(bytes.NewReader(raw))
+	if err != nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	for _, svc := range rawPf.Services {
+		for _, vol := range svc.Volumes {
+			// Named volumes have format "name:/path", bind mounts have "/host:/container"
+			parts := strings.SplitN(vol, ":", 2)
+			if len(parts) != 2 || strings.HasPrefix(parts[0], "/") {
+				continue
+			}
+			if err := ls.Session.Runtime.RemoveVolume(ctx, parts[0]); err != nil {
+				slog.Warn("failed to remove volume", "volume", parts[0], "error", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Removed volume %s\n", parts[0])
+			}
+		}
+	}
 }
 
 func destroySessionByName(ls *localSession, sessionName string) error {

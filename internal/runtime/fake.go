@@ -27,6 +27,9 @@ type FakeRuntime struct {
 	CreateNetworkCalls []string
 	RemoveNetworkCalls []string
 	networkCounter     int
+
+	RemovedVolumes []string
+	CopyCalls      []FakeCopyCall
 }
 
 type FakeExecCall struct {
@@ -193,4 +196,30 @@ func (f *FakeRuntime) InspectContainer(_ context.Context, id string) (*Container
 			"managed-by": "podspawn",
 		},
 	}, nil
+}
+
+func (f *FakeRuntime) RemoveVolume(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.RemovedVolumes = append(f.RemovedVolumes, name)
+	return nil
+}
+
+func (f *FakeRuntime) CopyToContainer(_ context.Context, containerID, destPath string, _ io.Reader) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CopyCalls = append(f.CopyCalls, FakeCopyCall{ContainerID: containerID, DestPath: destPath})
+	return nil
+}
+
+func (f *FakeRuntime) TagImage(_ context.Context, source, target string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Images[target] = true
+	return nil
+}
+
+type FakeCopyCall struct {
+	ContainerID string
+	DestPath    string
 }

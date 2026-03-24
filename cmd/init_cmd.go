@@ -30,6 +30,15 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	templateName, _ := cmd.Flags().GetString("template")
 	yes, _ := cmd.Flags().GetBool("yes")
+	update, _ := cmd.Flags().GetBool("update")
+
+	if update {
+		fmt.Fprintf(os.Stderr, "Fetching latest templates from podspawn/podfiles...\n")
+		if err := podfile.UpdateTemplateCache(); err != nil {
+			return fmt.Errorf("updating templates: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Templates updated.\n")
+	}
 
 	outPath := filepath.Join(cwd, "podfile.yaml")
 	if _, err := os.Stat(outPath); err == nil {

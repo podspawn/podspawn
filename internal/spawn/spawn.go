@@ -47,6 +47,8 @@ type Session struct {
 	WorkspaceMounts []runtime.Mount       // CWD bind mount for podspawn dev
 	PortBindings    []runtime.PortBinding // port forwarding for podspawn dev
 	WorkingDir      string                // override shell start dir
+	CopySource      string                // if set, copy this dir into container after creation
+	CopyDest        string                // destination path inside container for copy
 
 	pf *podfile.Podfile // cached after first parse
 }
@@ -267,6 +269,12 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		_ = s.Runtime.RemoveContainer(ctx, containerName)
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
 		return "", false, fmt.Errorf("setting up container user: %w", err)
+	}
+
+	if s.CopySource != "" && s.CopyDest != "" {
+		if err := podfile.CopyDirToContainer(ctx, s.Runtime, containerName, s.CopySource, s.CopyDest); err != nil {
+			slog.Warn("failed to copy directory into container", "src", s.CopySource, "dest", s.CopyDest, "error", err)
+		}
 	}
 
 	now := time.Now().UTC()

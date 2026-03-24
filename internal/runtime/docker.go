@@ -369,3 +369,17 @@ func (d *DockerRuntime) InspectContainer(ctx context.Context, id string) (*Conta
 		Labels: info.Config.Labels,
 	}, nil
 }
+
+func (d *DockerRuntime) RemoveVolume(ctx context.Context, name string) error {
+	return d.cli.VolumeRemove(ctx, name, true)
+}
+
+func (d *DockerRuntime) CopyToContainer(ctx context.Context, containerID, destPath string, content io.Reader) error {
+	return d.cli.CopyToContainer(ctx, containerID, destPath, content, container.CopyToContainerOptions{
+		CopyUIDGID: true,
+	})
+}
+
+func (d *DockerRuntime) TagImage(ctx context.Context, source, target string) error {
+	return d.cli.ImageTag(ctx, source, target)
+}

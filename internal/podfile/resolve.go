@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -97,7 +98,12 @@ func resolveLocalPath(ref string, podfileDir string) ([]byte, string, error) {
 }
 
 func resolveRegistryShorthand(name string) ([]byte, string, error) {
-	// Try bases first, then templates
+	// Cached registry takes precedence (user ran podspawn init --update)
+	if data, dir, err := resolveCachedRegistry(name); err == nil {
+		return data, dir, nil
+	}
+
+	// Fall back to embedded bases and templates
 	if data, err := LookupBase(name); err == nil {
 		return data, "", nil
 	}
@@ -105,12 +111,7 @@ func resolveRegistryShorthand(name string) ([]byte, string, error) {
 		return data, "", nil
 	}
 
-	// Try cached registry (from podspawn init --update)
-	if data, dir, err := resolveCachedRegistry(name); err == nil {
-		return data, dir, nil
-	}
-
-	return nil, "", fmt.Errorf("unknown extends reference %q: not found in embedded bases or templates", name)
+	return nil, "", fmt.Errorf("unknown extends reference %q: not found in cache or embedded templates", name)
 }
 
 func resolveCachedRegistry(name string) ([]byte, string, error) {
@@ -169,6 +170,72 @@ func resolveGitHubURL(ref string) ([]byte, string, error) {
 // Map keys are sorted so the same logical Podfile always hashes identically.
 func MarshalCanonical(pf *Podfile) ([]byte, error) {
 	return yaml.Marshal(pf)
+}
+
+// UpdateTemplateCache fetches the latest registry and templates from
+// podspawn/podfiles on GitHub and caches them locally.
+func UpdateTemplateCache() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("getting home directory: %w", err)
+	}
+	cacheDir := filepath.Join(home, ".podspawn", "cache", "podfiles")
+
+	regData, err := fetchGitHubRaw("podspawn/podfiles/main/registry.yaml")
+	if err != nil {
+		return fmt.Errorf("fetching registry: %w", err)
+	}
+
+	var reg Registry
+	if unmarshalErr := yaml.Unmarshal(regData, &reg); unmarshalErr != nil {
+		return fmt.Errorf("parsing fetched registry: %w", unmarshalErr)
+	}
+
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return fmt.Errorf("creating cache dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "registry.yaml"), regData, 0644); err != nil {
+		return fmt.Errorf("writing registry cache: %w", err)
+	}
+
+	for _, entry := range reg.Bases {
+		if fetchErr := fetchAndCache(cacheDir, entry.File); fetchErr != nil {
+			slog.Warn("failed to fetch base", "name", entry.Name, "error", fetchErr)
+		}
+	}
+	for _, entry := range reg.Templates {
+		if fetchErr := fetchAndCache(cacheDir, entry.File); fetchErr != nil {
+			slog.Warn("failed to fetch template", "name", entry.Name, "error", fetchErr)
+		}
+	}
+
+	return nil
+}
+
+func fetchAndCache(cacheDir, filePath string) error {
+	data, err := fetchGitHubRaw("podspawn/podfiles/main/" + filePath)
+	if err != nil {
+		return err
+	}
+	outPath := filepath.Join(cacheDir, filePath)
+	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(outPath, data, 0644)
+}
+
+func fetchGitHubRaw(repoPath string) ([]byte, error) {
+	rawURL := "https://raw.githubusercontent.com/" + repoPath
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetching %s: %w", rawURL, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // response body
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetching %s: HTTP %d", rawURL, resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func normalizeRef(ref string, podfileDir string) string {

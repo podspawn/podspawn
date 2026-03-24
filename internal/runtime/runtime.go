@@ -72,6 +72,9 @@ type Runtime interface {
 	RemoveNetwork(ctx context.Context, id string) error
 	ListContainers(ctx context.Context, labelFilter map[string]string) ([]ContainerInfo, error)
 	InspectContainer(ctx context.Context, id string) (*ContainerInfo, error)
+	RemoveVolume(ctx context.Context, name string) error
+	CopyToContainer(ctx context.Context, containerID, destPath string, content io.Reader) error
+	TagImage(ctx context.Context, source, target string) error
 }
 
 type ContainerInfo struct {
