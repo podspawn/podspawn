@@ -23,10 +23,11 @@ func ResolvePortBindings(expose []int, strategy string, flagPorts []int) ([]runt
 		strategy = "auto"
 	}
 
-	ports := expose
+	var ports []int
 	if strategy == "manual" {
-		ports = flagPorts
-	} else if len(flagPorts) > 0 {
+		ports = append(ports, flagPorts...)
+	} else {
+		ports = append(ports, expose...)
 		seen := map[int]bool{}
 		for _, p := range ports {
 			seen[p] = true
@@ -40,6 +41,12 @@ func ResolvePortBindings(expose []int, strategy string, flagPorts []int) ([]runt
 
 	if len(ports) == 0 {
 		return nil, nil
+	}
+
+	for _, p := range ports {
+		if p <= 0 || p > 65535 {
+			return nil, fmt.Errorf("invalid port %d: must be 1-65535", p)
+		}
 	}
 
 	var bindings []runtime.PortBinding
@@ -66,8 +73,12 @@ func findHostPort(preferred int, strategy string) (int, error) {
 		return 0, fmt.Errorf("port %d already in use (strategy: expose)", preferred)
 	}
 
-	// auto: scan for next available
-	for candidate := preferred + 1; candidate < preferred+100; candidate++ {
+	// auto: scan for next available, capped at 65535
+	maxPort := preferred + 100
+	if maxPort > 65535 {
+		maxPort = 65535
+	}
+	for candidate := preferred + 1; candidate <= maxPort; candidate++ {
 		if portAvailable(candidate) {
 			slog.Info("port conflict, using alternative", "wanted", preferred, "using", candidate)
 			return candidate, nil
