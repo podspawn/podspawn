@@ -135,22 +135,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 
-	// Check if re-attaching
+	// Check if re-attaching and print banner before entering the shell
 	existing, _ := ls.Store.GetSession(ls.Session.Username, sessionName)
-	isReattach := existing != nil
+	if existing != nil {
+		age := time.Since(existing.CreatedAt).Truncate(time.Second).String()
+		fmt.Fprintf(os.Stderr, "Re-attaching to %s (started %s ago)\n", sessionName, age)
+	} else {
+		printDetailedBanner(sessionName, pf, workspaceTarget, cwd, bindings)
+	}
 
 	exitCode := ls.Session.RunAndCleanup(ctx)
 	cancel()
-
-	if !isReattach && exitCode == 0 {
-		printDetailedBanner(sessionName, pf, workspaceTarget, cwd, bindings)
-	} else if isReattach {
-		age := ""
-		if existing != nil {
-			age = time.Since(existing.CreatedAt).Truncate(time.Second).String()
-		}
-		fmt.Fprintf(os.Stderr, "Re-attaching to %s (started %s ago)\n", sessionName, age)
-	}
 
 	if exitCode != 0 {
 		ls.Close()
