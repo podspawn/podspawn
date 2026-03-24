@@ -1,6 +1,9 @@
 package podfile
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSessionNameBasic(t *testing.T) {
 	name := SessionName("/home/user/code/myapp", "")
@@ -32,6 +35,17 @@ func TestSessionNamePodfileOverride(t *testing.T) {
 	name := SessionName("/home/user/code/myapp", "backend")
 	if name[:7] != "backend" {
 		t.Errorf("expected prefix 'backend', got %q", name)
+	}
+}
+
+func TestSessionNameNoTrailingHyphen(t *testing.T) {
+	// A long name that would have a hyphen at position 30 after truncation
+	longName := strings.Repeat("a", 28) + "---bbb"
+	name := SessionName("/home/user/"+longName, "")
+	prefix := strings.SplitN(name, "-", 2)[0]
+	// The last part before the hash separator shouldn't end with hyphen
+	if strings.HasSuffix(prefix, "-") {
+		t.Errorf("prefix has trailing hyphen: %q (full: %q)", prefix, name)
 	}
 }
 

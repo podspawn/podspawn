@@ -41,9 +41,9 @@ func sanitizeName(name string) string {
 		}
 	}
 	s := b.String()
-	s = strings.Trim(s, "-")
 	if len(s) > 30 {
 		s = s[:30]
 	}
+	s = strings.Trim(s, "-")
 	return s
 }
