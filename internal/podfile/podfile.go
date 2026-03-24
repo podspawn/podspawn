@@ -13,6 +13,11 @@ type Podfile struct {
 	OnCreate      string            `yaml:"on_create"`
 	OnStart       string            `yaml:"on_start"`
 	ExtraCommands []string          `yaml:"extra_commands"`
+	Extends       string            `yaml:"extends"`
+	Name          string            `yaml:"name"`
+	Mount         string            `yaml:"mount"`
+	Mode          string            `yaml:"mode"`
+	Workspace     string            `yaml:"workspace"`
 }
 
 type ServiceConfig struct {
@@ -40,5 +45,24 @@ type ResourcesConfig struct {
 }
 
 type PortsConfig struct {
-	Expose []int `yaml:"expose"`
+	Expose   []int  `yaml:"expose"`
+	Strategy string `yaml:"strategy"`
+}
+
+// MergeFlags tracks which fields use bang-replace syntax (e.g. packages!:).
+// Only relevant during extends resolution; discarded afterward.
+type MergeFlags struct {
+	PackagesReplace      bool
+	EnvReplace           bool
+	ServicesReplace      bool
+	ReposReplace         bool
+	ExtraCommandsReplace bool
+	OnCreateReplace      bool
+	OnStartReplace       bool
+}
+
+// RawPodfile pairs a parsed Podfile with its merge flags from bang syntax.
+type RawPodfile struct {
+	Podfile
+	Flags MergeFlags
 }
