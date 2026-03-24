@@ -4,87 +4,114 @@
 [![Release](https://img.shields.io/github/v/release/podspawn/podspawn)](https://github.com/podspawn/podspawn/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
-Dev containers backed by Docker. Locally or over SSH.
+Clone a repo. Run one command. Get the full dev environment.
 
-## Quick start
+```bash
+git clone github.com/yourorg/project
+cd project
+podspawn dev
+```
+
+That's it. Podspawn reads the repo's `podfile.yaml`, builds a cached image, starts companion services (postgres, redis), mounts your code, and drops you into a shell. Works locally with Docker or remotely over SSH.
+
+## Install
 
 ```bash
 curl -sSfL https://podspawn.dev/up | bash
 ```
 
-## What it does
+## How it works
 
-You want a dev environment. Not a VM, not a raw container, not a cloud workspace.
+A Podfile defines your dev environment:
 
-podspawn gives you **named machines** backed by Docker containers, configured with a Podfile (packages, services, env vars, hooks). Locally, there's no SSH, no root, no daemon. On a server, it hooks into your existing sshd so teammates just `ssh` in.
+```yaml
+extends: ubuntu-dev
+packages:
+  - go@1.25
+  - nodejs@22
+services:
+  - name: postgres
+    image: postgres:16
+    env: { POSTGRES_PASSWORD: devpass }
+env:
+  DATABASE_URL: "postgres://postgres:devpass@postgres:5432/dev"
+on_create: |
+  go mod download
+  npm install
+```
 
-One binary. Local or remote. Same workflow.
+`extends: ubuntu-dev` inherits common tools (git, ripgrep, fzf, neovim, jq). Your Podfile adds what's specific to your project. Podfiles compose -- a child inherits from a base and overrides what it needs.
 
-## Local mode
+## Three ways to use it
+
+### podspawn dev (local, one command)
 
 No SSH, no root, no daemon. Just Docker.
 
 ```bash
-podspawn create dev                    # create a machine
-podspawn shell dev                     # attach to it
-podspawn run scratch                   # create + attach, ephemeral
-podspawn list                          # see machines
-podspawn stop dev                      # destroy it
+podspawn dev                    # shell into Podfile environment
+podspawn dev -- make test       # run a command and exit
+podspawn down                   # stop everything
+podspawn init                   # scaffold a Podfile for your project
 ```
 
-Works with OrbStack, Docker Desktop, Colima, or Podman.
+Your code is bind-mounted into the container. Edits on your host appear instantly inside. Companion services are accessible by name (`postgres:5432`).
 
-## Server mode
+### Named machines (local, persistent)
 
-Hook into your existing sshd. Every SSH feature works for free.
+For longer-lived environments that aren't tied to a specific repo:
+
+```bash
+podspawn create backend         # create a named machine
+podspawn shell backend          # attach to it
+podspawn run scratch            # one-shot throwaway
+podspawn list                   # see what's running
+podspawn stop backend           # tear it down
+```
+
+### Server mode (remote, over SSH)
+
+Hook into your existing sshd. Every SSH feature works.
 
 ```
 ssh deploy@backend.pod
-  -> ProxyCommand resolves backend.pod to your server
-  -> sshd calls: podspawn auth-keys deploy
-  -> podspawn returns keys with command="podspawn spawn --user deploy"
-  -> container created from project's Podfile
-  -> companion services (postgres, redis) start on a shared network
-  -> you're in a fully configured dev environment
+  -> sshd calls podspawn auth-keys
+  -> container created from project Podfile
+  -> companion services start
+  -> you're in
 ```
 
 SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains Gateway, Cursor. Teammates need zero client-side install.
 
-## Podfile
+## Podfile features
 
-Define your dev environment in `podfile.yaml`:
-
-```yaml
-base: ubuntu:24.04
-packages:
-  - nodejs@22
-  - python@3.12
-  - ripgrep
-shell: /bin/zsh
-services:
-  - name: postgres
-    image: postgres:16
-    env:
-      POSTGRES_PASSWORD: devpass
-  - name: redis
-    image: redis:7
-env:
-  DATABASE_URL: "postgres://postgres:devpass@postgres:5432/dev"
-on_create: "make setup"
-on_start: "echo welcome back"
-```
-
-Companion services get their own containers on a shared Docker network with DNS discovery.
+- **Packages**: `go@1.25`, `nodejs@22`, `python@3.13`, `rust@stable` -- version-pinned installs
+- **Services**: postgres, redis, or any Docker image as a companion container
+- **Extends**: inherit from base Podfiles, override what you need
+- **Bang-replace**: `packages!:` to fully replace instead of merge
+- **Lifecycle hooks**: `on_create` (once) and `on_start` (every attach)
+- **Port forwarding**: auto-resolve conflicts, manual, or strict
+- **Mount modes**: bind (live sync), copy (one-shot), or none
+- **Session modes**: grace-period, destroy-on-disconnect, persistent
 
 ## What's working
+
+### Dev environments
+- [x] `podspawn dev` -- one-command setup from Podfile
+- [x] `podspawn down` -- teardown with `--clean` for volumes
+- [x] `podspawn init` -- scaffolding with project type detection
+- [x] `podspawn prebuild` -- pre-build images for CI
+- [x] Podfile `extends` with deep merge and bang-replace
+- [x] `mount: copy` via Docker CopyToContainer
+- [x] Port forwarding (auto, manual, expose strategies)
+- [x] Embedded templates: go, node, python, rust, fullstack, minimal
+- [x] Template registry with `--update` from [podspawn/podfiles](https://github.com/podspawn/podfiles)
+- [x] devcontainer.json fallback
 
 ### Local mode
 - [x] Named machines (`create`, `run`, `shell`, `list`, `stop`)
 - [x] Podfile environments (packages, services, env vars, hooks)
 - [x] Default Podfile at `~/.podspawn/podfile.yaml`
-- [x] Interactive onboarding wizard
-- [ ] `--with` flag for quick package overrides
-- [ ] Branch-based dev containers (`-b feat/auth`)
 
 ### Server mode
 - [x] Native sshd hook via `AuthorizedKeysCommand`
@@ -96,43 +123,40 @@ Companion services get their own containers on a shared Docker network with DNS 
 - [x] VS Code Remote, JetBrains Gateway, Cursor
 - [x] Non-root container users with passwordless sudo
 - [x] Project routing via `.pod` hostnames
-- [ ] Client-side `.pod` routing to multiple servers
-- [ ] Per-project branch selection over SSH
 
 ### Infrastructure
-- [x] SQLite session state (WAL mode, busy timeout, crash recovery)
-- [x] Per-user file locking
+- [x] SQLite session state (WAL mode, crash recovery)
 - [x] Cleanup daemon (grace periods, max lifetimes, orphan reconciliation)
 - [x] Structured audit logging (JSON-lines)
-- [x] Prometheus-compatible metrics (`podspawn status --prometheus`)
-- [x] Security hardening (cap-drop ALL, no-new-privileges, PID limits)
-- [x] gVisor runtime support (`runtime: runsc` in config)
-- [x] Multi-arch releases (linux/darwin/windows, amd64/arm64)
-- [x] deb, rpm, Homebrew
-- [x] Self-update (`podspawn update`)
-- [ ] Shell completions (bash, zsh, fish)
-- [ ] Machine snapshots
+- [x] Prometheus metrics (`podspawn status --prometheus`)
+- [x] Security hardening (cap-drop ALL, no-new-privileges, PID limits, gVisor)
+- [x] Multi-arch releases (linux/darwin/windows, amd64/arm64, deb/rpm/Homebrew)
 
 ## Commands
 
 ```
-# Local mode
+# Dev environments
+podspawn dev               # Start from CWD Podfile
+podspawn down              # Stop dev environment
+podspawn init              # Scaffold a Podfile
+podspawn prebuild          # Pre-build image for CI
+
+# Named machines
 podspawn create            # Create a named machine
 podspawn run               # Create + attach, ephemeral
 podspawn shell             # Attach to existing machine
 podspawn list              # Show machines
 podspawn stop              # Destroy a machine
 
-# Server mode
+# Server administration
 podspawn server-setup      # Configure sshd
 podspawn add-user          # Register SSH keys
 podspawn add-project       # Register a project with Podfile
 podspawn doctor            # Preflight checks
 
-# Client mode
+# Client
 podspawn setup             # Configure ~/.ssh/config
-podspawn connect           # ProxyCommand handler (.pod namespace)
-podspawn ssh               # SSH wrapper with .pod suffix
+podspawn ssh               # SSH wrapper with .pod routing
 podspawn open              # VS Code / Cursor launcher
 ```
 
@@ -141,13 +165,15 @@ podspawn open              # VS Code / Cursor launcher
 | | Codespaces | Coder | DevPod | podspawn |
 |---|---|---|---|---|
 | Self-hosted | no | yes | yes | yes |
-| SSH daemon | custom | custom | custom | native sshd |
+| One-command setup | yes | no | yes | yes |
+| SSH server | custom | custom | custom | native sshd |
 | Config format | devcontainer.json | Terraform | devcontainer.json | Podfile |
 | Companion services | Docker Compose | manual | manual | first-class |
+| Extends / composition | features system | no | features system | `extends` + merge |
 | Local mode | no | no | yes | yes |
 | Persistent + ephemeral | persistent only | persistent only | persistent only | both |
 | Complexity | high | high | medium | low |
-| Open source | no | yes | yes | yes (AGPL-3.0) |
+| Open source | no | yes (Apache) | yes (MPL) | yes (AGPL) |
 
 ## Requirements
 
@@ -158,14 +184,16 @@ podspawn open              # VS Code / Cursor launcher
 ## Documentation
 
 Full docs at [podspawn.dev](https://podspawn.dev):
-- [Tutorial](https://podspawn.dev/docs/guides/tutorial)
+- [Getting Started](https://podspawn.dev/docs/dev-environments/quickstart)
+- [Podfile Reference](https://podspawn.dev/docs/dev-environments/reference)
+- [Real-World Examples](https://podspawn.dev/docs/dev-environments/examples)
+- [Extending Podfiles](https://podspawn.dev/docs/dev-environments/extending)
 - [CLI Reference](https://podspawn.dev/docs/cli/server-commands)
-- [Podfile Spec](https://podspawn.dev/docs/podfile/overview)
 - [Security Hardening](https://podspawn.dev/docs/guides/security-hardening)
 
 ## Status
 
-**Alpha.** Core features work and are tested (290+ unit tests, integration tests across 4 Linux distros). API may change between minor versions. Current release: [v0.4.3](https://github.com/podspawn/podspawn/releases/tag/v0.4.3).
+**Alpha.** Core features work and are tested (350+ unit tests, integration tests across 4 Linux distros). API may change between minor versions.
 
 ## License
 
