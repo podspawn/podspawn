@@ -10,7 +10,6 @@ extends: ubuntu-dev
 
 packages:
   - python@3.13
-  - build-essential
 
 shell: /bin/bash
 
