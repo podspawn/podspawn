@@ -307,6 +307,40 @@ on_create!: "replaced"
 	}
 }
 
+func TestParseRawDuplicateBangAndNormal(t *testing.T) {
+	input := `
+base: ubuntu:24.04
+packages:
+  - git
+packages!:
+  - vim
+`
+	_, err := ParseRaw(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for both packages and packages!")
+	}
+	if !strings.Contains(err.Error(), "cannot specify both") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestParseRawDuplicateKeys(t *testing.T) {
+	input := `
+base: ubuntu:24.04
+packages:
+  - git
+packages:
+  - vim
+`
+	_, err := ParseRaw(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for duplicate key")
+	}
+	if !strings.Contains(err.Error(), "duplicate key") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestParseRawUnsupportedBangField(t *testing.T) {
 	input := `
 base!: ubuntu:24.04

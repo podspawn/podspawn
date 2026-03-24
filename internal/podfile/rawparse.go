@@ -38,22 +38,32 @@ func ParseRaw(r io.Reader) (*RawPodfile, error) {
 	}
 
 	var flags MergeFlags
+	seen := make(map[string]bool)
 	for i := 0; i < len(mapping.Content)-1; i += 2 {
 		key := mapping.Content[i]
 		if key.Kind != yaml.ScalarNode {
 			continue
 		}
-		if !strings.HasSuffix(key.Value, "!") {
-			continue
+
+		keyName := key.Value
+		if strings.HasSuffix(keyName, "!") {
+			base := strings.TrimSuffix(keyName, "!")
+			setter, ok := bangFields[base]
+			if !ok {
+				return nil, fmt.Errorf("bang-replace not supported on field %q", base)
+			}
+			if seen[base] {
+				return nil, fmt.Errorf("cannot specify both %q and %q", base, keyName)
+			}
+			setter(&flags)
+			key.Value = base
+			keyName = base
 		}
 
-		base := strings.TrimSuffix(key.Value, "!")
-		setter, ok := bangFields[base]
-		if !ok {
-			return nil, fmt.Errorf("bang-replace not supported on field %q", base)
+		if seen[keyName] {
+			return nil, fmt.Errorf("duplicate key %q in podfile", keyName)
 		}
-		setter(&flags)
-		key.Value = base
+		seen[keyName] = true
 	}
 
 	var pf Podfile
