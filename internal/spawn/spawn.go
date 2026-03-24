@@ -665,12 +665,19 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 	}
 	s.pf = pf
 
-	mergedRaw, err := podfile.MarshalCanonical(pf)
-	if err != nil {
-		_ = s.Runtime.RemoveNetwork(ctx, networkID)
-		return "", nil, "", nil, fmt.Errorf("marshaling merged podfile: %w", err)
+	// Use original raw bytes for hashing when no extends (preserves cache
+	// compatibility with add-project/update-project). Only use canonical
+	// marshaling when extends changes the effective content.
+	hashInput := raw
+	if rawPf.Extends != "" {
+		mergedRaw, marshalErr := podfile.MarshalCanonical(pf)
+		if marshalErr != nil {
+			_ = s.Runtime.RemoveNetwork(ctx, networkID)
+			return "", nil, "", nil, fmt.Errorf("marshaling merged podfile: %w", marshalErr)
+		}
+		hashInput = mergedRaw
 	}
-	tag := podfile.ComputeTag(s.ProjectName, mergedRaw)
+	tag := podfile.ComputeTag(s.ProjectName, hashInput)
 	exists, err := s.Runtime.ImageExists(ctx, tag)
 	if err != nil {
 		_ = s.Runtime.RemoveNetwork(ctx, networkID)
@@ -682,7 +689,7 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 			return "", nil, "", nil, fmt.Errorf("image %s not built; run: podspawn update-project %s", tag, s.ProjectName)
 		}
 		slog.Info("building image from podfile", "tag", tag)
-		if _, err := podfile.BuildImageFromPodfile(ctx, s.Runtime, pf, mergedRaw, s.ProjectName); err != nil {
+		if _, err := podfile.BuildImageFromPodfile(ctx, s.Runtime, pf, hashInput, s.ProjectName); err != nil {
 			_ = s.Runtime.RemoveNetwork(ctx, networkID)
 			return "", nil, "", nil, fmt.Errorf("building image from podfile: %w", err)
 		}
