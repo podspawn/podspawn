@@ -77,9 +77,13 @@ func FindAndRead(projectDir string) ([]byte, error) {
 	return nil, fmt.Errorf("no podfile.yaml or devcontainer.json found in %s", projectDir)
 }
 
+var validMounts = map[string]bool{"": true, "bind": true, "copy": true, "none": true}
+var validModes = map[string]bool{"": true, "grace-period": true, "destroy-on-disconnect": true, "persistent": true}
+var validPortStrategies = map[string]bool{"": true, "auto": true, "manual": true, "expose": true}
+
 func (pf *Podfile) validate() error {
-	if pf.Base == "" {
-		return fmt.Errorf("base image is required")
+	if pf.Base == "" && pf.Extends == "" {
+		return fmt.Errorf("base image is required (or use extends to inherit one)")
 	}
 
 	if pf.Shell != "" && !strings.HasPrefix(pf.Shell, "/") {
@@ -89,6 +93,30 @@ func (pf *Podfile) validate() error {
 	if pf.Resources.Memory != "" {
 		if _, err := config.ParseMemory(pf.Resources.Memory); err != nil {
 			return fmt.Errorf("invalid resources.memory: %w", err)
+		}
+	}
+
+	if !validMounts[pf.Mount] {
+		return fmt.Errorf("mount must be bind, copy, or none, got %q", pf.Mount)
+	}
+
+	if !validModes[pf.Mode] {
+		return fmt.Errorf("mode must be grace-period, destroy-on-disconnect, or persistent, got %q", pf.Mode)
+	}
+
+	if !validPortStrategies[pf.Ports.Strategy] {
+		return fmt.Errorf("ports.strategy must be auto, manual, or expose, got %q", pf.Ports.Strategy)
+	}
+
+	if pf.Workspace != "" && !strings.HasPrefix(pf.Workspace, "/") {
+		return fmt.Errorf("workspace must be absolute path, got %q", pf.Workspace)
+	}
+
+	if pf.Extends == "" {
+		for _, pkg := range pf.Packages {
+			if strings.HasPrefix(pkg, "!") {
+				return fmt.Errorf("item removal %q only valid when extends is set", pkg)
+			}
 		}
 	}
 
