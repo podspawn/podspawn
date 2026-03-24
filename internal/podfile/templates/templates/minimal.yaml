@@ -1,10 +1,21 @@
-# Minimal development environment
+# Minimal development environment for podspawn
+#
+# Just Ubuntu with basic tools. Good starting point for
+# projects that don't fit the other templates.
+#
+# Usage:
+#   podspawn init --template minimal
+#   podspawn dev
+
 base: ubuntu:24.04
+
 packages:
   - git
   - curl
   - ca-certificates
+
 shell: /bin/bash
+
 resources:
   cpus: 1.0
   memory: 2g

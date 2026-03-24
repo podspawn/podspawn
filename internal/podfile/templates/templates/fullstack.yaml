@@ -1,15 +1,30 @@
-# Full-stack: Node frontend + Go backend + postgres + redis
+# Full-stack development environment for podspawn
+#
+# Node.js frontend + Go backend + postgres + redis
+#
+# Usage:
+#   podspawn init --template fullstack
+#   podspawn dev
+#
+# Services are accessible by name from inside the container:
+#   postgres -> postgres:5432
+#   redis    -> redis:6379
+
 extends: ubuntu-dev
+
 packages:
   - nodejs@22
   - go@1.24
   - make
+
 shell: /bin/bash
+
 env:
   DATABASE_URL: "postgres://postgres:devpass@postgres:5432/dev"
   REDIS_URL: "redis://redis:6379"
   GOPATH: /home/user/go
   GOBIN: /home/user/go/bin
+
 services:
   - name: postgres
     image: postgres:16
@@ -17,17 +32,22 @@ services:
     env:
       POSTGRES_PASSWORD: devpass
       POSTGRES_DB: dev
+
   - name: redis
     image: redis:7
     ports: [6379]
+
 ports:
   expose: [3000, 5173, 8080]
   strategy: auto
+
 resources:
   cpus: 4.0
   memory: 8g
+
 on_create: |
   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
   go install github.com/air-verse/air@latest
+
 on_start: |
   echo "Full-stack ready: Node $(node --version), Go $(go version | awk '{print $3}')"

@@ -1,16 +1,27 @@
-# Rust development environment
+# Rust development environment for podspawn
+#
+# Usage:
+#   podspawn init --template rust
+#   podspawn dev
+
 extends: ubuntu-dev
+
 packages:
   - rust@stable
+
 shell: /bin/bash
+
 ports:
   expose: [8080]
   strategy: auto
+
 resources:
   cpus: 2.0
   memory: 4g
+
 on_create: |
   rustup component add clippy rustfmt
   if [ -f Cargo.toml ]; then cargo fetch; fi
+
 on_start: |
   echo "Rust $(rustc --version | awk '{print $2}') ready"

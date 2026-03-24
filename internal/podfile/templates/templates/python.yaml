@@ -1,19 +1,33 @@
-# Python development environment
+# Python development environment for podspawn
+#
+# Usage:
+#   podspawn init --template python
+#   podspawn dev
+#
+# Uses uv for fast dependency management.
+
 extends: ubuntu-dev
+
 packages:
   - python@3.13
   - build-essential
+
 shell: /bin/bash
+
 env:
   UV_CACHE_DIR: /home/user/.cache/uv
+
 ports:
   expose: [8000, 5000]
   strategy: auto
+
 resources:
   cpus: 2.0
   memory: 4g
+
 on_create: |
   curl -LsSf https://astral.sh/uv/install.sh | sh
   if [ -f pyproject.toml ]; then uv sync; fi
+
 on_start: |
   echo "Python $(python3 --version | awk '{print $2}') ready"

@@ -3,44 +3,56 @@ schema_version: 1
 bases:
   - name: ubuntu-dev
     file: bases/ubuntu-dev.yaml
-    description: "Ubuntu 24.04 with common dev tools"
+    description: "Ubuntu 24.04 with common dev tools (git, ripgrep, fzf, neovim, jq)"
+    tags: [ubuntu, dev-tools]
 
   - name: minimal
     file: bases/minimal.yaml
-    description: "Bare Ubuntu 24.04"
+    description: "Ubuntu 24.04 with bare minimum (git, curl)"
+    tags: [ubuntu, minimal]
+
+  - name: data-science
+    file: bases/data-science.yaml
+    description: "Python with jupyter, pandas, numpy, and matplotlib"
+    tags: [python, data-science, jupyter]
 
 templates:
   - name: go
     file: templates/go.yaml
-    description: "Go development environment"
+    description: "Go development with golangci-lint, delve, and air"
+    tags: [go, backend, api]
     detect:
       files: [go.mod, go.sum]
       priority: 10
 
   - name: node
     file: templates/node.yaml
-    description: "Node.js development environment"
+    description: "Node.js development with npm"
+    tags: [node, javascript, typescript, frontend]
     detect:
       files: [package.json]
       priority: 10
 
   - name: python
     file: templates/python.yaml
-    description: "Python development environment"
+    description: "Python development with uv and pytest"
+    tags: [python, backend, scripting]
     detect:
       files: [pyproject.toml, setup.py, requirements.txt]
       priority: 10
 
   - name: rust
     file: templates/rust.yaml
-    description: "Rust development environment"
+    description: "Rust development with cargo, clippy, and rustfmt"
+    tags: [rust, systems]
     detect:
       files: [Cargo.toml]
       priority: 10
 
   - name: fullstack
     file: templates/fullstack.yaml
-    description: "Full-stack (Node + Go + Postgres + Redis)"
+    description: "Full-stack with Node frontend, Go backend, postgres, and redis"
+    tags: [fullstack, go, node, postgres, redis]
     detect:
       files: [package.json, go.mod]
       priority: 20
@@ -48,7 +60,8 @@ templates:
 
   - name: minimal
     file: templates/minimal.yaml
-    description: "Minimal Ubuntu environment"
+    description: "Minimal Ubuntu environment, nothing language-specific"
+    tags: [minimal, general]
     detect:
       files: []
       priority: 0

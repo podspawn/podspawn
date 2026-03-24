@@ -28,6 +28,16 @@ func TestLookupBase(t *testing.T) {
 	}
 }
 
+func TestLookupBaseDataScience(t *testing.T) {
+	data, err := LookupBase("data-science")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) == 0 {
+		t.Error("empty data-science base")
+	}
+}
+
 func TestLookupBaseUnknown(t *testing.T) {
 	_, err := LookupBase("nonexistent")
 	if err == nil {

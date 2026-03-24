@@ -1,15 +1,26 @@
-# Node.js development environment
+# Node.js development environment for podspawn
+#
+# Usage:
+#   podspawn init --template node
+#   podspawn dev
+
 extends: ubuntu-dev
+
 packages:
   - nodejs@22
+
 shell: /bin/bash
+
 ports:
   expose: [3000, 5173]
   strategy: auto
+
 resources:
   cpus: 2.0
   memory: 4g
+
 on_create: |
   if [ -f package.json ]; then npm install; fi
+
 on_start: |
   echo "Node $(node --version) ready"

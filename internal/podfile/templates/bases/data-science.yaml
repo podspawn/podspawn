@@ -1,0 +1,16 @@
+base: ubuntu:24.04
+packages:
+  - python@3.13
+  - git
+  - curl
+  - build-essential
+  - ca-certificates
+shell: /bin/bash
+env:
+  UV_CACHE_DIR: /home/user/.cache/uv
+on_create: |
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  uv venv /home/user/.venv
+  . /home/user/.venv/bin/activate
+  uv pip install jupyter pandas numpy matplotlib scikit-learn
+  echo '. /home/user/.venv/bin/activate' >> /home/user/.bashrc
