@@ -28,11 +28,13 @@ var configOptionalCommands = map[string]bool{
 	"doctor": true, "update": true,
 	"config": true, "servers": true, "ssh": true, "open": true, "ping": true,
 	"create": true, "run": true, "shell": true,
+	"dev": true, "down": true, "init": true,
 }
 
 var localModeCommands = map[string]bool{
 	"create": true, "run": true, "shell": true,
 	"list": true, "stop": true, "doctor": true,
+	"dev": true, "down": true, "init": true,
 }
 
 var rootCmd = &cobra.Command{

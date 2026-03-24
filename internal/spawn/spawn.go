@@ -44,6 +44,10 @@ type Session struct {
 	MaxPerUser    int           // 0 = unlimited
 	Audit         *audit.Logger // nil = no audit logging
 
+	WorkspaceMounts []runtime.Mount       // CWD bind mount for podspawn dev
+	PortBindings    []runtime.PortBinding // port forwarding for podspawn dev
+	WorkingDir      string                // override shell start dir
+
 	pf *podfile.Podfile // cached after first parse
 }
 
@@ -239,6 +243,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		Memory:         s.Memory,
 		NetworkID:      networkID,
 		NetworkName:    containerName,
+		PortBindings:   s.PortBindings,
 		CapDrop:        sec.CapDrop,
 		CapAdd:         sec.CapAdd,
 		SecurityOpt:    sec.SecurityOpt,
@@ -373,10 +378,14 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string, en
 		defer term.Restore(stdinFd, oldState) //nolint:errcheck // best-effort restore
 	}
 
+	workDir := s.userHomeDir()
+	if s.WorkingDir != "" {
+		workDir = s.WorkingDir
+	}
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
 		Cmd:        []string{s.Shell},
 		User:       s.Username,
-		WorkingDir: s.userHomeDir(),
+		WorkingDir: workDir,
 		TTY:        true,
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
@@ -453,6 +462,7 @@ func (s *Session) containerMounts() []runtime.Mount {
 	var mounts []runtime.Mount
 	mounts = append(mounts, s.agentMount()...)
 	mounts = append(mounts, s.homeDirMount()...)
+	mounts = append(mounts, s.WorkspaceMounts...)
 	if len(mounts) == 0 {
 		return nil
 	}
@@ -643,14 +653,24 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 		_ = s.Runtime.RemoveNetwork(ctx, networkID)
 		return "", nil, "", nil, fmt.Errorf("loading podfile for %s: %w", s.ProjectName, err)
 	}
-	pf, err := podfile.Parse(bytes.NewReader(raw))
+	rawPf, err := podfile.ParseRaw(bytes.NewReader(raw))
 	if err != nil {
 		_ = s.Runtime.RemoveNetwork(ctx, networkID)
 		return "", nil, "", nil, fmt.Errorf("parsing podfile for %s: %w", s.ProjectName, err)
 	}
+	pf, err := podfile.ResolveExtends(rawPf, s.Project.LocalPath)
+	if err != nil {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
+		return "", nil, "", nil, fmt.Errorf("resolving extends for %s: %w", s.ProjectName, err)
+	}
 	s.pf = pf
 
-	tag := podfile.ComputeTag(s.ProjectName, raw)
+	mergedRaw, err := podfile.MarshalCanonical(pf)
+	if err != nil {
+		_ = s.Runtime.RemoveNetwork(ctx, networkID)
+		return "", nil, "", nil, fmt.Errorf("marshaling merged podfile: %w", err)
+	}
+	tag := podfile.ComputeTag(s.ProjectName, mergedRaw)
 	exists, err := s.Runtime.ImageExists(ctx, tag)
 	if err != nil {
 		_ = s.Runtime.RemoveNetwork(ctx, networkID)
@@ -662,7 +682,7 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 			return "", nil, "", nil, fmt.Errorf("image %s not built; run: podspawn update-project %s", tag, s.ProjectName)
 		}
 		slog.Info("building image from podfile", "tag", tag)
-		if _, err := podfile.BuildImageFromPodfile(ctx, s.Runtime, pf, raw, s.ProjectName); err != nil {
+		if _, err := podfile.BuildImageFromPodfile(ctx, s.Runtime, pf, mergedRaw, s.ProjectName); err != nil {
 			_ = s.Runtime.RemoveNetwork(ctx, networkID)
 			return "", nil, "", nil, fmt.Errorf("building image from podfile: %w", err)
 		}
