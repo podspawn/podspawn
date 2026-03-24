@@ -1,0 +1,25 @@
+# podspawn development environment
+# Run: podspawn dev
+extends: ubuntu-dev
+
+packages:
+  - go@1.25
+
+shell: /bin/bash
+
+ports:
+  expose: []
+
+resources:
+  cpus: 2.0
+  memory: 4g
+
+on_create: |
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+  go install github.com/go-delve/delve/cmd/dlv@latest
+  go mod download
+  make hooks
+
+on_start: |
+  echo "podspawn dev: Go $(go version | awk '{print $3}'), $(golangci-lint version --short 2>/dev/null || echo 'lint not found')"
+  echo "run 'make test' to verify, 'make lint' to check style"
