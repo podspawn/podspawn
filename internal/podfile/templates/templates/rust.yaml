@@ -1,7 +1,7 @@
 # Rust development environment
 extends: ubuntu-dev
 packages:
-  - rust
+  - rust@stable
 shell: /bin/bash
 ports:
   expose: [8080]
