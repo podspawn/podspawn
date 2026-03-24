@@ -44,6 +44,7 @@ templates:
     detect:
       files: [package.json, go.mod]
       priority: 20
+      all: true
 
   - name: minimal
     file: templates/minimal.yaml

@@ -30,6 +30,7 @@ type RegistryEntry struct {
 type DetectRules struct {
 	Files    []string `yaml:"files"`
 	Priority int      `yaml:"priority"`
+	All      bool     `yaml:"all"` // true = all files must be present
 }
 
 // LoadRegistry parses the embedded registry.yaml.
