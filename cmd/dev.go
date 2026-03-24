@@ -95,11 +95,16 @@ func runDev(cmd *cobra.Command, args []string) error {
 	if workspaceTarget == "" {
 		workspaceTarget = "/workspace/" + filepath.Base(cwd)
 	}
-	if mountMode == "bind" {
+	switch mountMode {
+	case "bind":
 		ls.Session.WorkspaceMounts = []runtime.Mount{{
 			Source: cwd,
 			Target: workspaceTarget,
 		}}
+		ls.Session.WorkingDir = workspaceTarget
+	case "copy":
+		ls.Session.CopySource = cwd
+		ls.Session.CopyDest = workspaceTarget
 		ls.Session.WorkingDir = workspaceTarget
 	}
 
