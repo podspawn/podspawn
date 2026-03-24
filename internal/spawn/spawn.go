@@ -402,10 +402,14 @@ func (s *Session) interactiveShell(ctx context.Context, containerName string, en
 }
 
 func (s *Session) execCommand(ctx context.Context, containerName, origCmd string, env []string) (int, error) {
+	workDir := s.userHomeDir()
+	if s.WorkingDir != "" {
+		workDir = s.WorkingDir
+	}
 	exitCode, err := s.Runtime.Exec(ctx, containerName, runtime.ExecOpts{
 		Cmd:        []string{"sh", "-c", origCmd},
 		User:       s.Username,
-		WorkingDir: s.userHomeDir(),
+		WorkingDir: workDir,
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
