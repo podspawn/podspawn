@@ -132,6 +132,33 @@ SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains G
 - [x] Security hardening (cap-drop ALL, no-new-privileges, PID limits, gVisor)
 - [x] Multi-arch releases (linux/darwin/windows, amd64/arm64, deb/rpm/Homebrew)
 
+## Roadmap
+
+What's coming next, roughly in priority order:
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Dev integration tests | Planned | End-to-end tests for `podspawn dev` with real Docker |
+| Image baking | Planned | Bake container user into image at build time for faster cold starts (~600ms) |
+| `prebuild --push` | Planned | Push pre-built images to ghcr.io for CI |
+| `podspawn sync` | Planned | Manual push/pull file sync between host and container |
+| Warm container pool | Exploring | Pre-start containers in background for instant attach |
+| Branch-based environments | Exploring | `podspawn dev -b feat/auth` for per-branch containers |
+| Shell completions | Exploring | bash, zsh, fish completions |
+
+See [project_next_phase.md](https://github.com/podspawn/podspawn) for detailed design notes.
+
+## Dogfooding
+
+podspawn uses its own tool for development. See [`podfile.yaml`](podfile.yaml) in this repo:
+
+```bash
+git clone github.com/podspawn/podspawn
+cd podspawn
+podspawn dev
+# Go 1.25, golangci-lint, delve, pre-commit hooks -- all ready
+```
+
 ## Commands
 
 ```
