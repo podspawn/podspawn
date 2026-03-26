@@ -40,10 +40,6 @@ func Generate(pf *Podfile) (string, error) {
 		b.WriteString("\nSHELL [\"/bin/bash\", \"-euo\", \"pipefail\", \"-c\"]\n")
 	}
 
-	for _, cmd := range specialRuns {
-		fmt.Fprintf(&b, "\nRUN %s\n", cmd)
-	}
-
 	if len(aptPkgs) > 0 {
 		b.WriteString("\nRUN apt-get update && apt-get install -y \\\n")
 		sort.Strings(aptPkgs)
@@ -51,6 +47,10 @@ func Generate(pf *Podfile) (string, error) {
 			fmt.Fprintf(&b, "    %s \\\n", pkg)
 		}
 		b.WriteString("    && rm -rf /var/lib/apt/lists/*\n")
+	}
+
+	for _, cmd := range specialRuns {
+		fmt.Fprintf(&b, "\nRUN %s\n", cmd)
 	}
 
 	staticEnv := filterStaticEnv(pf.Env)

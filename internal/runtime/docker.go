@@ -205,11 +205,20 @@ func (d *DockerRuntime) Exec(ctx context.Context, containerID string, opts ExecO
 		}()
 	}
 
+	stdout := opts.Stdout
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+
 	var outputErr error
 	if opts.TTY {
-		_, outputErr = io.Copy(opts.Stdout, attach.Reader)
+		_, outputErr = io.Copy(stdout, attach.Reader)
 	} else {
-		_, outputErr = stdcopy.StdCopy(opts.Stdout, opts.Stderr, attach.Reader)
+		_, outputErr = stdcopy.StdCopy(stdout, stderr, attach.Reader)
 	}
 	if outputErr != nil {
 		return -1, fmt.Errorf("reading exec output: %w", outputErr)

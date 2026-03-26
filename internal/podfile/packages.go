@@ -64,8 +64,13 @@ func InstallCommands(pkgs []Package) ([]string, []string, error) {
 		}
 
 		if cmds, ok := versions["*"]; ok {
+			version := pkg.Version
+			// Go tarballs require three-segment versions (1.25 -> 1.25.0)
+			if pkg.Name == "go" && strings.Count(version, ".") == 1 {
+				version += ".0"
+			}
 			for _, cmd := range cmds {
-				specialRuns = append(specialRuns, strings.ReplaceAll(cmd, "${VERSION}", pkg.Version))
+				specialRuns = append(specialRuns, strings.ReplaceAll(cmd, "${VERSION}", version))
 			}
 			continue
 		}
