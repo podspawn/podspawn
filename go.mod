@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.6.0
+	github.com/docker/go-connections v0.7.0
 	github.com/fatih/color v1.19.0
 	github.com/pkg/sftp v1.13.10
 	github.com/spf13/cobra v1.10.2
