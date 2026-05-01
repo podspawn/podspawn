@@ -17,4 +17,5 @@ vendor/
 # Project docs (local only)
 tracker.md
 CLAUDE.md
+AGENTS.md
 podspawn-spec-v2.md
