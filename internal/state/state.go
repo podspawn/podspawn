@@ -32,6 +32,18 @@ type Session struct {
 	Mode          string // grace-period, destroy-on-disconnect, persistent
 }
 
+type Machine struct {
+	User            string
+	Name            string
+	Project         string
+	RepoURL         string
+	Branch          string
+	WorkspacePath   string
+	WorkspaceTarget string
+	CreatedAt       time.Time
+	Initialized     bool
+}
+
 type SessionStore interface {
 	CreateSession(sess *Session) error
 	GetSession(user, project string) (*Session, error)
@@ -47,13 +59,22 @@ type SessionStore interface {
 	Close() error
 }
 
+type MachineStore interface {
+	CreateMachine(machine *Machine) error
+	GetMachine(user, name string) (*Machine, error)
+	UpdateMachineInitialized(user, name string, initialized bool) error
+	DeleteMachine(user, name string) error
+	ListMachinesByUser(user string) ([]*Machine, error)
+}
+
 type Store struct {
 	db *sql.DB
 }
 
 var _ SessionStore = (*Store)(nil)
+var _ MachineStore = (*Store)(nil)
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 func Open(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -109,19 +130,42 @@ func migrate(db *sql.DB) error {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
 
-	if version >= schemaVersion {
-		// Consolidate any duplicate rows left by older versions
-		if err := consolidateSchemaVersion(db, version); err != nil {
+	if version < 3 {
+		// Sessions are ephemeral; safe to recreate on upgrade from pre-v3 schemas.
+		_, _ = db.Exec(`DROP TABLE IF EXISTS sessions`)
+		if err := ensureSessionsTable(db); err != nil {
 			return err
 		}
-		return nil
+		version = 3
 	}
 
-	// Sessions are ephemeral; safe to recreate on upgrade.
-	_, _ = db.Exec(`DROP TABLE IF EXISTS sessions`)
+	if version == 3 {
+		if err := ensureMachinesTable(db); err != nil {
+			return err
+		}
+		version = 4
+	}
 
-	_, err = db.Exec(`
-		CREATE TABLE sessions (
+	if version == 0 {
+		if err := ensureSessionsTable(db); err != nil {
+			return err
+		}
+		if err := ensureMachinesTable(db); err != nil {
+			return err
+		}
+		version = schemaVersion
+	}
+
+	if err := consolidateSchemaVersion(db, version); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureSessionsTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sessions (
 			user           TEXT NOT NULL,
 			project        TEXT NOT NULL DEFAULT '',
 			container_id   TEXT NOT NULL,
@@ -141,11 +185,26 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("creating sessions table: %w", err)
 	}
+	return nil
+}
 
-	if err := consolidateSchemaVersion(db, schemaVersion); err != nil {
-		return err
+func ensureMachinesTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS machines (
+			user             TEXT NOT NULL,
+			name             TEXT NOT NULL,
+			project          TEXT NOT NULL,
+			repo_url         TEXT NOT NULL,
+			branch           TEXT NOT NULL DEFAULT '',
+			workspace_path   TEXT NOT NULL,
+			workspace_target TEXT NOT NULL,
+			created_at       DATETIME NOT NULL,
+			initialized      INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (user, name)
+		)`)
+	if err != nil {
+		return fmt.Errorf("creating machines table: %w", err)
 	}
-
 	return nil
 }
 
@@ -165,6 +224,78 @@ func consolidateSchemaVersion(db *sql.DB, ver int) error {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) CreateMachine(machine *Machine) error {
+	initialized := 0
+	if machine.Initialized {
+		initialized = 1
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO machines (user, name, project, repo_url, branch, workspace_path, workspace_target, created_at, initialized)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		machine.User, machine.Name, machine.Project, machine.RepoURL, machine.Branch,
+		machine.WorkspacePath, machine.WorkspaceTarget, machine.CreatedAt.UTC(), initialized,
+	)
+	return err
+}
+
+const machineColumns = `user, name, project, repo_url, branch, workspace_path, workspace_target, created_at, initialized`
+
+func scanMachine(scanner interface{ Scan(...any) error }) (*Machine, error) {
+	machine := &Machine{}
+	var initialized int
+	err := scanner.Scan(
+		&machine.User, &machine.Name, &machine.Project, &machine.RepoURL, &machine.Branch,
+		&machine.WorkspacePath, &machine.WorkspaceTarget, &machine.CreatedAt, &initialized,
+	)
+	machine.Initialized = initialized == 1
+	return machine, err
+}
+
+func (s *Store) GetMachine(user, name string) (*Machine, error) {
+	row := s.db.QueryRow(`SELECT `+machineColumns+` FROM machines WHERE user = ? AND name = ?`, user, name)
+
+	machine, err := scanMachine(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return machine, nil
+}
+
+func (s *Store) UpdateMachineInitialized(user, name string, initialized bool) error {
+	value := 0
+	if initialized {
+		value = 1
+	}
+	_, err := s.db.Exec(`UPDATE machines SET initialized = ? WHERE user = ? AND name = ?`, value, user, name)
+	return err
+}
+
+func (s *Store) DeleteMachine(user, name string) error {
+	_, err := s.db.Exec(`DELETE FROM machines WHERE user = ? AND name = ?`, user, name)
+	return err
+}
+
+func (s *Store) ListMachinesByUser(user string) ([]*Machine, error) {
+	rows, err := s.db.Query(`SELECT `+machineColumns+` FROM machines WHERE user = ? ORDER BY name`, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var machines []*Machine
+	for rows.Next() {
+		machine, err := scanMachine(rows)
+		if err != nil {
+			return nil, err
+		}
+		machines = append(machines, machine)
+	}
+	return machines, rows.Err()
 }
 
 func (s *Store) CreateSession(sess *Session) error {

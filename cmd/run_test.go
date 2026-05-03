@@ -17,3 +17,12 @@ func TestRunCmdHasImageFlag(t *testing.T) {
 		t.Fatal("run should have --image flag")
 	}
 }
+
+func TestRunCmdHasProjectFlags(t *testing.T) {
+	if runCmd.Flags().Lookup("project") == nil {
+		t.Fatal("run should have --project flag")
+	}
+	if runCmd.Flags().Lookup("branch") == nil {
+		t.Fatal("run should have --branch flag")
+	}
+}

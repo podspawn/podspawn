@@ -25,7 +25,7 @@ var configOptionalCommands = map[string]bool{
 	"setup": true, "server-setup": true, "version": true,
 	"list": true, "stop": true, "cleanup": true, "status": true,
 	"list-users": true, "remove-user": true, "remove-project": true,
-	"doctor": true, "update": true,
+	"doctor": true, "update": true, "add-project": true, "update-project": true,
 	"config": true, "servers": true, "ssh": true, "open": true, "ping": true,
 	"create": true, "run": true, "shell": true,
 	"dev": true, "down": true, "init": true, "prebuild": true,
@@ -34,6 +34,7 @@ var configOptionalCommands = map[string]bool{
 var localModeCommands = map[string]bool{
 	"create": true, "run": true, "shell": true,
 	"list": true, "stop": true, "doctor": true,
+	"add-project": true, "update-project": true, "remove-project": true,
 	"dev": true, "down": true, "init": true, "prebuild": true,
 }
 

@@ -15,6 +15,7 @@ packages:
   - ripgrep
   - fzf
 shell: /bin/zsh
+branch: release/2026.05
 dotfiles:
   repo: github.com/user/dots
   install: install.sh
@@ -59,6 +60,9 @@ extra_commands:
 	}
 	if pf.Shell != "/bin/zsh" {
 		t.Errorf("shell = %q, want /bin/zsh", pf.Shell)
+	}
+	if pf.Branch != "release/2026.05" {
+		t.Errorf("branch = %q, want release/2026.05", pf.Branch)
 	}
 	if pf.Dotfiles == nil || pf.Dotfiles.Repo != "github.com/user/dots" {
 		t.Error("dotfiles not parsed correctly")

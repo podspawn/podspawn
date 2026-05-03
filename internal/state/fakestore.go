@@ -11,12 +11,17 @@ import (
 type FakeStore struct {
 	mu       sync.Mutex
 	Sessions map[string]*Session // keyed by "user|project"
+	Machines map[string]*Machine // keyed by "user|name"
 }
 
 var _ SessionStore = (*FakeStore)(nil)
+var _ MachineStore = (*FakeStore)(nil)
 
 func NewFakeStore() *FakeStore {
-	return &FakeStore{Sessions: make(map[string]*Session)}
+	return &FakeStore{
+		Sessions: make(map[string]*Session),
+		Machines: make(map[string]*Machine),
+	}
 }
 
 func sessionKey(user, project string) string {
@@ -177,3 +182,60 @@ func (f *FakeStore) ListSessionsByUser(user string) ([]*Session, error) {
 }
 
 func (f *FakeStore) Close() error { return nil }
+
+func (f *FakeStore) CreateMachine(machine *Machine) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := sessionKey(machine.User, machine.Name)
+	if _, exists := f.Machines[key]; exists {
+		return fmt.Errorf("machine already exists for %s/%s", machine.User, machine.Name)
+	}
+	cp := *machine
+	f.Machines[key] = &cp
+	return nil
+}
+
+func (f *FakeStore) GetMachine(user, name string) (*Machine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	machine, ok := f.Machines[sessionKey(user, name)]
+	if !ok {
+		return nil, nil
+	}
+	cp := *machine
+	return &cp, nil
+}
+
+func (f *FakeStore) UpdateMachineInitialized(user, name string, initialized bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	machine, ok := f.Machines[sessionKey(user, name)]
+	if !ok {
+		return fmt.Errorf("no machine for %s/%s", user, name)
+	}
+	machine.Initialized = initialized
+	return nil
+}
+
+func (f *FakeStore) DeleteMachine(user, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.Machines, sessionKey(user, name))
+	return nil
+}
+
+func (f *FakeStore) ListMachinesByUser(user string) ([]*Machine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*Machine
+	for _, machine := range f.Machines {
+		if machine.User == user {
+			cp := *machine
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}

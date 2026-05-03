@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -19,6 +21,11 @@ var createCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		image, _ := cmd.Flags().GetString("image")
+		projectName, _ := cmd.Flags().GetString("project")
+		branch, _ := cmd.Flags().GetString("branch")
+		if branch != "" && projectName == "" {
+			return errors.New("--branch requires --project")
+		}
 
 		ls, err := buildLocalSession(name)
 		if err != nil {
@@ -30,14 +37,23 @@ var createCmd = &cobra.Command{
 			ls.Session.Image = image
 		}
 
-		spin := ui.NewSpinner("Creating %s (%s)", name, ls.Session.Image)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
+
+		createdMachine, err := setupNamedMachine(ctx, ls, name, projectName, branch)
+		if err != nil {
+			return err
+		}
+
+		spin := ui.NewSpinner("Creating %s (%s)", name, ls.Session.Image)
 
 		_, err = ls.Session.Ensure(ctx)
 		if err != nil {
 			spin.Fail()
+			var hookErr *spawn.HookError
+			if createdMachine && !errors.As(err, &hookErr) {
+				cleanupNewMachineOnFailure(ls)
+			}
 			return err
 		}
 
@@ -48,5 +64,7 @@ var createCmd = &cobra.Command{
 
 func init() {
 	createCmd.Flags().String("image", "", "base image (default from config)")
+	createCmd.Flags().String("project", "", "registered project name")
+	createCmd.Flags().String("branch", "", "git branch for project-backed machines")
 	rootCmd.AddCommand(createCmd)
 }

@@ -25,24 +25,29 @@ const sftpServerPath = "/usr/lib/openssh/sftp-server"
 const containerAgentDir = "/run/ssh-agent"
 
 type Session struct {
-	Username      string
-	ProjectName   string                // empty = default image session
-	Project       *config.ProjectConfig // nil = use default image
-	UserOverrides *config.UserOverrides // nil = no per-user overrides
-	Runtime       runtime.Runtime
-	Image         string
-	Shell         string
-	CPUs          float64
-	Memory        int64
-	Store         state.SessionStore // nil = Phase 0 mode (destroy on exit)
-	LockDir       string
-	GracePeriod   time.Duration
-	MaxLifetime   time.Duration
-	Mode          string // "grace-period" | "destroy-on-disconnect" | "persistent"
-	HomesDir      string // base dir for persistent home bind mounts
-	Security      config.SecurityConfig
-	MaxPerUser    int           // 0 = unlimited
-	Audit         *audit.Logger // nil = no audit logging
+	Username                 string
+	ProjectName              string                // empty = default image session
+	Project                  *config.ProjectConfig // nil = use default image
+	UserOverrides            *config.UserOverrides // nil = no per-user overrides
+	Runtime                  runtime.Runtime
+	Image                    string
+	Shell                    string
+	CPUs                     float64
+	Memory                   int64
+	Store                    state.SessionStore // nil = Phase 0 mode (destroy on exit)
+	LockDir                  string
+	GracePeriod              time.Duration
+	MaxLifetime              time.Duration
+	Mode                     string // "grace-period" | "destroy-on-disconnect" | "persistent"
+	HomesDir                 string // base dir for persistent home bind mounts
+	Security                 config.SecurityConfig
+	MaxPerUser               int           // 0 = unlimited
+	Audit                    *audit.Logger // nil = no audit logging
+	MachineStore             state.MachineStore
+	Machine                  *state.Machine
+	WorkspacePath            string
+	RemoveWorkspaceOnDestroy bool
+	RequireProjectImage      bool
 
 	WorkspaceMounts []runtime.Mount       // CWD bind mount for podspawn dev
 	PortBindings    []runtime.PortBinding // port forwarding for podspawn dev
@@ -51,6 +56,19 @@ type Session struct {
 	CopyDest        string                // destination path inside container for copy
 
 	pf *podfile.Podfile // cached after first parse
+}
+
+type HookError struct {
+	Hook string
+	Err  error
+}
+
+func (e *HookError) Error() string {
+	return fmt.Sprintf("%s: %v", e.Hook, e.Err)
+}
+
+func (e *HookError) Unwrap() error {
+	return e.Err
 }
 
 func (s *Session) userHomeDir() string {
@@ -151,7 +169,10 @@ func (s *Session) Ensure(ctx context.Context) (string, error) {
 		return "", err
 	}
 	s.ensurePodfileParsed()
-	s.runHooks(ctx, containerName, isNew)
+	if err := s.runHooks(ctx, containerName, isNew); err != nil {
+		s.cleanupFailedSession(ctx)
+		return "", err
+	}
 	return containerName, nil
 }
 
@@ -162,7 +183,10 @@ func (s *Session) Run(ctx context.Context) (int, error) {
 			return 1, err
 		}
 		s.ensurePodfileParsed()
-		s.runHooks(ctx, containerName, isNew)
+		if err := s.runHooks(ctx, containerName, isNew); err != nil {
+			s.cleanupFailedSession(ctx)
+			return 1, err
+		}
 		return s.routeSession(ctx, containerName)
 	}
 
@@ -567,12 +591,13 @@ func (s *Session) ensurePodfileParsed() {
 	s.pf = pf
 }
 
-func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool) {
+func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool) error {
 	if s.pf == nil {
-		return
+		return nil
 	}
 
-	if isNew {
+	shouldInitialize := isNew && (s.Machine == nil || !s.Machine.Initialized)
+	if shouldInitialize {
 		if s.pf.Dotfiles != nil {
 			if err := podfile.CloneDotfiles(ctx, s.Runtime, containerName, s.Username, s.pf.Dotfiles); err != nil {
 				slog.Warn("dotfiles setup failed", "error", err)
@@ -583,10 +608,19 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 				slog.Warn("repo clone failed", "url", repo.URL, "error", err)
 			}
 		}
-		podfile.RunHook(ctx, s.Runtime, containerName, s.Username, "on_create", s.pf.OnCreate)
+		if err := podfile.RunHookE(ctx, s.Runtime, containerName, s.Username, "on_create", s.pf.OnCreate); err != nil {
+			return &HookError{Hook: "on_create", Err: err}
+		}
+		if s.Machine != nil && s.MachineStore != nil {
+			if err := s.MachineStore.UpdateMachineInitialized(s.Username, s.Machine.Name, true); err != nil {
+				return fmt.Errorf("marking machine initialized: %w", err)
+			}
+			s.Machine.Initialized = true
+		}
 	}
 
 	podfile.RunHook(ctx, s.Runtime, containerName, s.Username, "on_start", s.pf.OnStart)
+	return nil
 }
 
 func (s *Session) applyUserOverrides() {
@@ -701,7 +735,7 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 		return "", nil, "", nil, fmt.Errorf("checking image %s: %w", tag, err)
 	}
 	if !exists {
-		if s.Project.Repo != "" {
+		if s.Project.Repo != "" && s.RequireProjectImage {
 			_ = s.Runtime.RemoveNetwork(ctx, networkID)
 			return "", nil, "", nil, fmt.Errorf("image %s not built; run: podspawn update-project %s", tag, s.ProjectName)
 		}
@@ -748,6 +782,30 @@ func (s *Session) resolveProject(ctx context.Context) (image string, env []strin
 	return image, env, networkID, serviceIDs, nil
 }
 
+func (s *Session) cleanupFailedSession(ctx context.Context) {
+	if s.Store != nil {
+		sess, err := s.Store.GetSession(s.Username, s.ProjectName)
+		if err == nil && sess != nil {
+			if destroyErr := cleanup.DestroySession(ctx, s.Runtime, s.Store, sess); destroyErr != nil {
+				slog.Warn("failed to clean up failed session", "user", s.Username, "project", s.ProjectName, "error", destroyErr)
+			}
+		}
+	}
+
+	if s.RemoveWorkspaceOnDestroy {
+		s.removeWorkspace()
+	}
+}
+
+func (s *Session) removeWorkspace() {
+	if s.WorkspacePath == "" {
+		return
+	}
+	if err := os.RemoveAll(s.WorkspacePath); err != nil {
+		slog.Warn("failed to remove workspace", "path", s.WorkspacePath, "error", err)
+	}
+}
+
 func (s *Session) cleanupServicesAndNetwork(ctx context.Context, serviceIDs []string, networkID string) {
 	if len(serviceIDs) > 0 {
 		podfile.StopServices(ctx, s.Runtime, serviceIDs)
@@ -764,6 +822,9 @@ func (s *Session) Disconnect(ctx context.Context) {
 		containerName := s.containerName()
 		if err := s.Runtime.RemoveContainer(ctx, containerName); err != nil {
 			slog.Warn("cleanup failed", "container", containerName, "error", err)
+		}
+		if s.RemoveWorkspaceOnDestroy {
+			s.removeWorkspace()
 		}
 		return
 	}
@@ -801,6 +862,9 @@ func (s *Session) Disconnect(ctx context.Context) {
 		}
 		slog.Info("destroying container", "user", s.Username, "container", sess.ContainerName)
 		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, sess)
+		if s.RemoveWorkspaceOnDestroy {
+			s.removeWorkspace()
+		}
 		s.Audit.ContainerDestroy(s.Username, s.ProjectName, sess.ContainerName, "disconnect")
 		return
 	}

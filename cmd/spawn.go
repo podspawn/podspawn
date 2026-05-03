@@ -73,6 +73,7 @@ var spawnCmd = &cobra.Command{
 				slog.Warn("failed to load projects", "error", loadErr)
 			} else if p, ok := projects[project]; ok {
 				sess.Project = &p
+				sess.RequireProjectImage = true
 			}
 		}
 

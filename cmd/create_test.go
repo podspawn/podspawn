@@ -20,3 +20,12 @@ func TestCreateCmdHasImageFlag(t *testing.T) {
 		t.Errorf("--image default = %q, want empty", flag.DefValue)
 	}
 }
+
+func TestCreateCmdHasProjectFlags(t *testing.T) {
+	if createCmd.Flags().Lookup("project") == nil {
+		t.Fatal("create should have --project flag")
+	}
+	if createCmd.Flags().Lookup("branch") == nil {
+		t.Fatal("create should have --branch flag")
+	}
+}

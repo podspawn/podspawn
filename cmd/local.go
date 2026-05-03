@@ -53,36 +53,28 @@ func buildLocalSession(name string) (*localSession, error) {
 	}
 
 	sess := &spawn.Session{
-		Username:    user,
-		ProjectName: name,
-		Runtime:     rt,
-		Image:       cfg.Defaults.Image,
-		Shell:       cfg.Defaults.Shell,
-		CPUs:        cfg.Defaults.CPUs,
-		Memory:      memory,
-		LockDir:     cfg.State.LockDir,
-		GracePeriod: gracePeriod,
-		MaxLifetime: maxLifetime,
-		Mode:        cfg.Session.Mode,
-		HomesDir:    cfg.State.HomesDir,
-		Security:    cfg.Security,
-		MaxPerUser:  cfg.Resources.MaxPerUser,
-		Store:       store,
+		Username:     user,
+		ProjectName:  name,
+		Runtime:      rt,
+		Image:        cfg.Defaults.Image,
+		Shell:        cfg.Defaults.Shell,
+		CPUs:         cfg.Defaults.CPUs,
+		Memory:       memory,
+		LockDir:      cfg.State.LockDir,
+		GracePeriod:  gracePeriod,
+		MaxLifetime:  maxLifetime,
+		Mode:         cfg.Session.Mode,
+		HomesDir:     cfg.State.HomesDir,
+		Security:     cfg.Security,
+		MaxPerUser:   cfg.Resources.MaxPerUser,
+		Store:        store,
+		MachineStore: store,
 	}
 
 	ls := &localSession{
 		Session: sess,
 		Store:   store,
 		closers: []func(){func() { _ = store.Close() }},
-	}
-
-	if name != "" {
-		projects, loadErr := config.LoadProjects(cfg.ProjectsFile)
-		if loadErr != nil {
-			slog.Warn("failed to load projects", "error", loadErr)
-		} else if p, ok := projects[name]; ok {
-			sess.Project = &p
-		}
 	}
 
 	if sess.Project == nil {
@@ -108,4 +100,16 @@ func buildLocalSession(name string) (*localSession, error) {
 	}
 
 	return ls, nil
+}
+
+func localDataDir() string {
+	return filepath.Dir(cfg.State.DBPath)
+}
+
+func localProjectsRoot() string {
+	return filepath.Join(localDataDir(), "projects")
+}
+
+func localWorkspacesRoot() string {
+	return filepath.Join(localDataDir(), "workspaces")
 }

@@ -59,15 +59,20 @@ Your code is bind-mounted into the container. Edits on your host appear instantl
 
 ### Named machines (local, persistent)
 
-For longer-lived environments that aren't tied to a specific repo:
+For longer-lived environments, including branch-specific project workspaces:
 
 ```bash
-podspawn create backend         # create a named machine
-podspawn shell backend          # attach to it
-podspawn run scratch            # one-shot throwaway
-podspawn list                   # see what's running
-podspawn stop backend           # tear it down
+podspawn create backend                          # create a named machine
+podspawn add-project api --repo https://github.com/acme/api
+podspawn create auth-fix --project api --branch feat/auth-retry
+podspawn shell auth-fix                          # attach or restart it
+podspawn run scratch                             # one-shot throwaway
+podspawn run review --project api --branch fix/flaky-test
+podspawn list                                    # see what's running
+podspawn stop auth-fix                           # tear down container, keep checkout
 ```
+
+Project-backed machines clone into `~/.podspawn/workspaces/<machine>/` in local mode. The checkout survives `podspawn stop`, so `podspawn shell <machine>` can recreate the container without recloning or rerunning `on_create`.
 
 ### Server mode (remote, over SSH)
 
@@ -112,6 +117,7 @@ SFTP, scp, rsync, port forwarding, agent forwarding, VS Code Remote, JetBrains G
 - [x] Named machines (`create`, `run`, `shell`, `list`, `stop`)
 - [x] Podfile environments (packages, services, env vars, hooks)
 - [x] Default Podfile at `~/.podspawn/podfile.yaml`
+- [x] Registered project workspaces via `create/run --project [--branch]`
 
 ### Server mode
 - [x] Native sshd hook via `AuthorizedKeysCommand`
@@ -143,7 +149,7 @@ What's coming next, roughly in priority order:
 | `prebuild --push` | Planned | Push pre-built images to ghcr.io for CI |
 | `podspawn sync` | Planned | Manual push/pull file sync between host and container |
 | Warm container pool | Exploring | Pre-start containers in background for instant attach |
-| Branch-based environments | Exploring | `podspawn dev -b feat/auth` for per-branch containers |
+| Branch-based environments | In progress | local branch workspaces via `create/run --project --branch` |
 | Shell completions | Exploring | bash, zsh, fish completions |
 
 See [project_next_phase.md](https://github.com/podspawn/podspawn) for detailed design notes.

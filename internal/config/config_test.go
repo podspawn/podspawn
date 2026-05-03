@@ -207,12 +207,16 @@ func TestLocalDefaults(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	wantDB := filepath.Join(home, ".podspawn", "state.db")
 	wantLocks := filepath.Join(home, ".podspawn", "locks")
+	wantProjects := filepath.Join(home, ".podspawn", "projects.yaml")
 
 	if cfg.State.DBPath != wantDB {
 		t.Errorf("state.db_path = %q, want %q", cfg.State.DBPath, wantDB)
 	}
 	if cfg.State.LockDir != wantLocks {
 		t.Errorf("state.lock_dir = %q, want %q", cfg.State.LockDir, wantLocks)
+	}
+	if cfg.ProjectsFile != wantProjects {
+		t.Errorf("projects_file = %q, want %q", cfg.ProjectsFile, wantProjects)
 	}
 	if cfg.Session.MaxLifetime != "24h" {
 		t.Errorf("session.max_lifetime = %q, want 24h", cfg.Session.MaxLifetime)
@@ -233,6 +237,9 @@ func TestLocalDefaultsPathsAreUserLocal(t *testing.T) {
 	}
 	if strings.HasPrefix(cfg.State.LockDir, "/var") {
 		t.Errorf("local lock dir should not be under /var: %s", cfg.State.LockDir)
+	}
+	if strings.HasPrefix(cfg.ProjectsFile, "/etc") {
+		t.Errorf("local projects file should not be under /etc: %s", cfg.ProjectsFile)
 	}
 	if !strings.Contains(cfg.State.DBPath, ".podspawn") {
 		t.Errorf("local DB path should contain .podspawn: %s", cfg.State.DBPath)

@@ -37,6 +37,20 @@ func testSessionData(user string) *Session {
 	}
 }
 
+func testMachineData(user, name string) *Machine {
+	return &Machine{
+		User:            user,
+		Name:            name,
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		Branch:          "feat/auth-retry",
+		WorkspacePath:   "/tmp/workspaces/" + name,
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		Initialized:     false,
+	}
+}
+
 func TestOpenCreatesTable(t *testing.T) {
 	store := openTestDB(t)
 
@@ -280,6 +294,74 @@ func TestReopenPreservesData(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("session should survive reopen")
+	}
+}
+
+func TestCreateAndGetMachine(t *testing.T) {
+	store := openTestDB(t)
+	machine := testMachineData("deploy", "auth-fix")
+
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected machine, got nil")
+	}
+	if got.Branch != "feat/auth-retry" {
+		t.Errorf("branch = %q, want feat/auth-retry", got.Branch)
+	}
+	if got.WorkspaceTarget != "/workspace/backend" {
+		t.Errorf("workspace_target = %q, want /workspace/backend", got.WorkspaceTarget)
+	}
+}
+
+func TestUpdateMachineInitialized(t *testing.T) {
+	store := openTestDB(t)
+	machine := testMachineData("deploy", "auth-fix")
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.UpdateMachineInitialized("deploy", "auth-fix", true); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Initialized {
+		t.Fatal("machine should be initialized")
+	}
+}
+
+func TestListMachinesByUser(t *testing.T) {
+	store := openTestDB(t)
+	for _, name := range []string{"beta", "alpha"} {
+		machine := testMachineData("deploy", name)
+		if err := store.CreateMachine(machine); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := testMachineData("ops", "ops-box")
+	if err := store.CreateMachine(other); err != nil {
+		t.Fatal(err)
+	}
+
+	machines, err := store.ListMachinesByUser("deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(machines) != 2 {
+		t.Fatalf("expected 2 machines, got %d", len(machines))
+	}
+	if machines[0].Name != "alpha" || machines[1].Name != "beta" {
+		t.Fatalf("machines out of order: %+v", machines)
 	}
 }
 
@@ -667,6 +749,78 @@ func TestMigrateFromVersion1(t *testing.T) {
 	}
 }
 
+func TestMigrateFromVersion3PreservesSessionsAndAddsMachines(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "migrate-v3.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (3)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE sessions (
+		user           TEXT NOT NULL,
+		project        TEXT NOT NULL DEFAULT '',
+		container_id   TEXT NOT NULL,
+		container_name TEXT NOT NULL,
+		image          TEXT NOT NULL,
+		status         TEXT NOT NULL DEFAULT 'running',
+		connections    INTEGER NOT NULL DEFAULT 1,
+		grace_expiry   DATETIME,
+		created_at     DATETIME NOT NULL,
+		last_activity  DATETIME NOT NULL,
+		max_lifetime   DATETIME NOT NULL,
+		network_id     TEXT NOT NULL DEFAULT '',
+		service_ids    TEXT NOT NULL DEFAULT '',
+		mode           TEXT NOT NULL DEFAULT 'grace-period',
+		PRIMARY KEY (user, project)
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	_, err = db.Exec(`INSERT INTO sessions (user, project, container_id, container_name, image, status, connections, created_at, last_activity, max_lifetime, network_id, service_ids, mode)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"deploy", "backend", "ctr-1", "podspawn-deploy-backend", "ubuntu:24.04", "running", 1,
+		now, now, now.Add(8*time.Hour), "net-1", "svc-1", "grace-period")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	sess, err := store.GetSession("deploy", "backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess == nil {
+		t.Fatal("v3 session should survive v4 migration")
+	}
+
+	machine := testMachineData("deploy", "auth-fix")
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("machines table should exist after migration")
+	}
+}
+
 func TestCancelGracePeriodRestoresRunning(t *testing.T) {
 	store := openTestDB(t)
 
@@ -815,6 +969,42 @@ func TestFakeStoreGetMissing(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatal("expected nil for missing session")
+	}
+}
+
+func TestFakeStoreMachineLifecycle(t *testing.T) {
+	fs := NewFakeStore()
+	machine := testMachineData("deploy", "auth-fix")
+
+	if err := fs.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fs.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Project != "backend" {
+		t.Fatalf("unexpected machine: %+v", got)
+	}
+
+	if err := fs.UpdateMachineInitialized("deploy", "auth-fix", true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = fs.GetMachine("deploy", "auth-fix")
+	if !got.Initialized {
+		t.Fatal("machine should be initialized")
+	}
+
+	if err := fs.DeleteMachine("deploy", "auth-fix"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = fs.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatal("machine should be deleted")
 	}
 }
 

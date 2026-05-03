@@ -109,6 +109,7 @@ func LocalDefaults() *Config {
 	cfg.State.DBPath = filepath.Join(podspawnDir, "state.db")
 	cfg.State.LockDir = filepath.Join(podspawnDir, "locks")
 	cfg.State.HomesDir = filepath.Join(podspawnDir, "homes")
+	cfg.ProjectsFile = filepath.Join(podspawnDir, "projects.yaml")
 	cfg.Session.MaxLifetime = "24h"
 	return cfg
 }

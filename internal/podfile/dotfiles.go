@@ -73,10 +73,9 @@ func CloneRepoInContainer(ctx context.Context, rt runtime.Runtime, containerName
 	return nil
 }
 
-// RunHook executes a lifecycle hook (on_create, on_start) inside the container.
-func RunHook(ctx context.Context, rt runtime.Runtime, containerName, user, hookName, script string) {
+func RunHookE(ctx context.Context, rt runtime.Runtime, containerName, user, hookName, script string) error {
 	if script == "" {
-		return
+		return nil
 	}
 	slog.Info("running hook", "hook", hookName, "container", containerName)
 	exitCode, err := rt.Exec(ctx, containerName, runtime.ExecOpts{
@@ -84,10 +83,17 @@ func RunHook(ctx context.Context, rt runtime.Runtime, containerName, user, hookN
 		User: user,
 	})
 	if err != nil {
-		slog.Warn("hook failed", "hook", hookName, "error", err)
-		return
+		return fmt.Errorf("%s hook failed: %w", hookName, err)
 	}
 	if exitCode != 0 {
-		slog.Warn("hook exited non-zero", "hook", hookName, "code", exitCode)
+		return fmt.Errorf("%s hook exited %d", hookName, exitCode)
+	}
+	return nil
+}
+
+// RunHook executes a lifecycle hook (on_create, on_start) inside the container.
+func RunHook(ctx context.Context, rt runtime.Runtime, containerName, user, hookName, script string) {
+	if err := RunHookE(ctx, rt, containerName, user, hookName, script); err != nil {
+		slog.Warn("hook failed", "hook", hookName, "error", err)
 	}
 }

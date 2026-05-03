@@ -280,15 +280,16 @@ func TestRunWithStateCreatesSession(t *testing.T) {
 	fake := runtime.NewFakeRuntime()
 	store := state.NewFakeStore()
 	sess := &Session{
-		Username:    "deploy",
-		Runtime:     fake,
-		Image:       "ubuntu:24.04",
-		Shell:       "/bin/bash",
-		Store:       store,
-		LockDir:     t.TempDir(),
-		GracePeriod: 60 * time.Second,
-		MaxLifetime: 8 * time.Hour,
-		Mode:        "grace-period",
+		Username:            "deploy",
+		Runtime:             fake,
+		Image:               "ubuntu:24.04",
+		Shell:               "/bin/bash",
+		Store:               store,
+		LockDir:             t.TempDir(),
+		GracePeriod:         60 * time.Second,
+		MaxLifetime:         8 * time.Hour,
+		Mode:                "grace-period",
+		RequireProjectImage: true,
 	}
 	t.Setenv("SSH_ORIGINAL_COMMAND", "whoami")
 
@@ -331,15 +332,16 @@ func TestRunReattachesViaState(t *testing.T) {
 	})
 
 	sess := &Session{
-		Username:    "deploy",
-		Runtime:     fake,
-		Image:       "ubuntu:24.04",
-		Shell:       "/bin/bash",
-		Store:       store,
-		LockDir:     t.TempDir(),
-		GracePeriod: 60 * time.Second,
-		MaxLifetime: 8 * time.Hour,
-		Mode:        "grace-period",
+		Username:            "deploy",
+		Runtime:             fake,
+		Image:               "ubuntu:24.04",
+		Shell:               "/bin/bash",
+		Store:               store,
+		LockDir:             t.TempDir(),
+		GracePeriod:         60 * time.Second,
+		MaxLifetime:         8 * time.Hour,
+		Mode:                "grace-period",
+		RequireProjectImage: true,
 	}
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
@@ -616,14 +618,15 @@ func TestRunWithRegisteredProjectFailsWithoutPrebuiltImage(t *testing.T) {
 			Repo:      "https://github.com/org/backend",
 			LocalPath: projectDir,
 		},
-		Runtime:     fake,
-		Image:       "ubuntu:24.04",
-		Shell:       "/bin/bash",
-		Store:       store,
-		LockDir:     t.TempDir(),
-		GracePeriod: 60 * time.Second,
-		MaxLifetime: 8 * time.Hour,
-		Mode:        "grace-period",
+		Runtime:             fake,
+		Image:               "ubuntu:24.04",
+		Shell:               "/bin/bash",
+		Store:               store,
+		LockDir:             t.TempDir(),
+		GracePeriod:         60 * time.Second,
+		MaxLifetime:         8 * time.Hour,
+		Mode:                "grace-period",
+		RequireProjectImage: true,
 	}
 	t.Setenv("SSH_ORIGINAL_COMMAND", "id")
 
@@ -1762,6 +1765,203 @@ func TestEnsureIsIdempotent(t *testing.T) {
 	// Should only have created the container once
 	if len(fake.CreateCalls) != 1 {
 		t.Errorf("expected 1 create call, got %d", len(fake.CreateCalls))
+	}
+}
+
+func TestRunSkipsOnCreateForInitializedMachine(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	podfileContent := []byte("base: ubuntu:24.04\non_start: echo welcome\non_create: echo bootstrap\n")
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), podfileContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images[podfile.ComputeTag("auth-fix", podfileContent)] = true
+
+	machine := &state.Machine{
+		User:            "deploy",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		Branch:          "feat/auth-retry",
+		WorkspacePath:   projectDir,
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		Initialized:     true,
+	}
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:      "deploy",
+		ProjectName:   "auth-fix",
+		Project:       &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
+		Runtime:       fake,
+		Image:         "ubuntu:24.04",
+		Shell:         "/bin/bash",
+		Store:         store,
+		MachineStore:  store,
+		Machine:       machine,
+		LockDir:       t.TempDir(),
+		GracePeriod:   60 * time.Second,
+		MaxLifetime:   8 * time.Hour,
+		Mode:          "grace-period",
+		WorkingDir:    machine.WorkspaceTarget,
+		WorkspacePath: machine.WorkspacePath,
+		WorkspaceMounts: []runtime.Mount{{
+			Source: machine.WorkspacePath,
+			Target: machine.WorkspaceTarget,
+		}},
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "pwd")
+
+	_, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var scripts []string
+	for _, call := range fake.ExecCalls {
+		if len(call.Opts.Cmd) == 3 && call.Opts.Cmd[0] == "sh" && call.Opts.Cmd[1] == "-c" {
+			scripts = append(scripts, call.Opts.Cmd[2])
+		}
+	}
+
+	for _, script := range scripts {
+		if strings.Contains(script, "bootstrap") {
+			t.Fatalf("on_create should not rerun for initialized machine, got scripts %v", scripts)
+		}
+	}
+	foundOnStart := false
+	for _, script := range scripts {
+		if strings.Contains(script, "welcome") {
+			foundOnStart = true
+		}
+	}
+	if !foundOnStart {
+		t.Fatalf("on_start should run, got scripts %v", scripts)
+	}
+}
+
+func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.ExitCodes = []int{0, 9}
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	podfileContent := []byte("base: ubuntu:24.04\non_create: exit 9\n")
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), podfileContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images[podfile.ComputeTag("auth-fix", podfileContent)] = true
+
+	machine := &state.Machine{
+		User:            "deploy",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		Branch:          "feat/auth-retry",
+		WorkspacePath:   projectDir,
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		Initialized:     false,
+	}
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:      "deploy",
+		ProjectName:   "auth-fix",
+		Project:       &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
+		Runtime:       fake,
+		Image:         "ubuntu:24.04",
+		Shell:         "/bin/bash",
+		Store:         store,
+		MachineStore:  store,
+		Machine:       machine,
+		LockDir:       t.TempDir(),
+		GracePeriod:   60 * time.Second,
+		MaxLifetime:   8 * time.Hour,
+		Mode:          "grace-period",
+		WorkingDir:    machine.WorkspaceTarget,
+		WorkspacePath: machine.WorkspacePath,
+		WorkspaceMounts: []runtime.Mount{{
+			Source: machine.WorkspacePath,
+			Target: machine.WorkspaceTarget,
+		}},
+	}
+
+	_, err := sess.Ensure(context.Background())
+	if err == nil {
+		t.Fatal("expected on_create failure")
+	}
+	var hookErr *HookError
+	if !errors.As(err, &hookErr) || hookErr.Hook != "on_create" {
+		t.Fatalf("expected on_create hook error, got %v", err)
+	}
+
+	gotMachine, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMachine == nil || gotMachine.Initialized {
+		t.Fatalf("machine should remain uninitialized, got %+v", gotMachine)
+	}
+
+	gotSession, err := store.GetSession("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSession != nil {
+		t.Fatal("failed initialization should not leave a session row behind")
+	}
+}
+
+func TestDisconnectRemovesWorkspaceWhenConfigured(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.Containers["podspawn-deploy-scratch"] = true
+	store := state.NewFakeStore()
+
+	workspace := filepath.Join(t.TempDir(), "scratch")
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	if err := store.CreateSession(&state.Session{
+		User:          "deploy",
+		Project:       "scratch",
+		ContainerID:   "ctr-scratch",
+		ContainerName: "podspawn-deploy-scratch",
+		Image:         "ubuntu:24.04",
+		Status:        "running",
+		Connections:   1,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+		Mode:          "destroy-on-disconnect",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:                 "deploy",
+		ProjectName:              "scratch",
+		Runtime:                  fake,
+		Store:                    store,
+		LockDir:                  t.TempDir(),
+		Mode:                     "destroy-on-disconnect",
+		WorkspacePath:            workspace,
+		RemoveWorkspaceOnDestroy: true,
+	}
+
+	sess.Disconnect(context.Background())
+
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace should be removed, stat err = %v", err)
 	}
 }
 

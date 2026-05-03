@@ -37,7 +37,7 @@ var addProjectCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
 		defer cancel()
 
-		localPath := filepath.Join("/var/lib/podspawn/projects", name)
+		localPath := filepath.Join(localProjectsRoot(), name)
 		if err := podfile.CloneRepo(ctx, repo, localPath, branch); err != nil {
 			os.RemoveAll(localPath) //nolint:errcheck
 			return fmt.Errorf("cloning %s: %w", repo, err)

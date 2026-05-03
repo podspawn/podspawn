@@ -16,6 +16,9 @@ func Merge(base *Podfile, child *RawPodfile) *Podfile {
 	if child.Shell != "" {
 		out.Shell = child.Shell
 	}
+	if child.Branch != "" {
+		out.Branch = child.Branch
+	}
 	if child.Mount != "" {
 		out.Mount = child.Mount
 	}

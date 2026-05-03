@@ -29,6 +29,16 @@ var shellCmd = &cobra.Command{
 			ls.Session.Username = user
 		}
 
+		if isLocalMode {
+			machine, machineErr := ls.Store.GetMachine(ls.Session.Username, name)
+			if machineErr != nil {
+				return machineErr
+			}
+			if machine != nil {
+				configureSessionFromMachine(ls, machine, false)
+			}
+		}
+
 		// Prevent routeSession from treating this as a non-interactive command
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 

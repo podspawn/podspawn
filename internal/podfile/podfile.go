@@ -15,6 +15,7 @@ type Podfile struct {
 	ExtraCommands []string          `yaml:"extra_commands"`
 	Extends       string            `yaml:"extends"`
 	Name          string            `yaml:"name"`
+	Branch        string            `yaml:"branch"`
 	Mount         string            `yaml:"mount"`
 	Mode          string            `yaml:"mode"`
 	Workspace     string            `yaml:"workspace"`
