@@ -86,8 +86,13 @@ On first create:
 On reattach with `shell`:
 - Reuse the existing machine and workspace as-is.
 - Do not re-clone.
-- Do not re-run `on_create`.
+- Do not re-run `on_create` once the machine is marked initialized.
 - Run `on_start`.
+
+For ephemeral `run --project`:
+- Clone into a temporary workspace under `~/.podspawn/workspaces/.tmp-<name>-<unix-nano>/`.
+- Remove that workspace on normal teardown.
+- If the process is interrupted mid-run or mid-clone, leftover `.tmp-` directories may need manual cleanup.
 
 ### Isolation model
 
@@ -189,6 +194,7 @@ If `on_create` fails:
 ## Validation
 
 - `--project` must reference a registered project.
+- `--branch` requires `--project`.
 - `--branch` must be non-empty if provided.
 - Machine names keep existing validation rules.
 - Reusing an existing machine name with a different branch must fail clearly, not mutate the old machine.
