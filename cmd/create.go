@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/podspawn/podspawn/internal/spawn"
@@ -54,7 +55,7 @@ var createCmd = &cobra.Command{
 			if createdMachine && !errors.As(err, &hookErr) {
 				cleanupNewMachineOnFailure(ls)
 			}
-			return err
+			return wrapCreateEnsureError(name, ls.Session.WorkspacePath, err)
 		}
 
 		spin.Stop()
@@ -67,4 +68,13 @@ func init() {
 	createCmd.Flags().String("project", "", "registered project name")
 	createCmd.Flags().String("branch", "", "git branch for project-backed machines")
 	rootCmd.AddCommand(createCmd)
+}
+
+func wrapCreateEnsureError(name, workspacePath string, err error) error {
+	var hookErr *spawn.HookError
+	if !errors.As(err, &hookErr) || hookErr.Hook != "on_create" || workspacePath == "" {
+		return err
+	}
+
+	return fmt.Errorf("%w; workspace preserved at %q; rerun \"podspawn create %s\" to retry, or \"podspawn rm %s\" to discard", err, workspacePath, name, name)
 }

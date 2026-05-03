@@ -1,6 +1,12 @@
 package cmd
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/podspawn/podspawn/internal/spawn"
+)
 
 func TestCreateCmdUsage(t *testing.T) {
 	if createCmd.Use != "create <name>" {
@@ -27,5 +33,27 @@ func TestCreateCmdHasProjectFlags(t *testing.T) {
 	}
 	if createCmd.Flags().Lookup("branch") == nil {
 		t.Fatal("create should have --branch flag")
+	}
+}
+
+func TestWrapCreateEnsureErrorAddsWorkspaceRecoveryHintForHookFailures(t *testing.T) {
+	err := wrapCreateEnsureError(
+		"backend-main",
+		"/Users/tenant/.podspawn/workspaces/backend-main",
+		&spawn.HookError{Hook: "on_create", Err: errors.New("exit status 9")},
+	)
+	if err == nil {
+		t.Fatal("wrapCreateEnsureError() returned nil")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{
+		"workspace preserved at",
+		"podspawn create backend-main",
+		"podspawn rm backend-main",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q missing %q", msg, want)
+		}
 	}
 }
