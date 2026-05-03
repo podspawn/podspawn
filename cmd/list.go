@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"text/tabwriter"
 	"time"
 
@@ -22,30 +23,33 @@ var listCmd = &cobra.Command{
 		}
 		defer func() { _ = store.Close() }()
 
-		sessions, err := store.ListSessions()
-		if err != nil {
-			return fmt.Errorf("listing machines: %w", err)
-		}
-
-		if len(sessions) == 0 {
-			fmt.Println("No machines running.")
-			return nil
-		}
-
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		if isLocalMode {
+			rows, err := collectLocalMachineRows(store, os.Getenv("USER"))
+			if err != nil {
+				return fmt.Errorf("listing machines: %w", err)
+			}
+			if len(rows) == 0 {
+				fmt.Println("No machines.")
+				return nil
+			}
+
 			_, _ = fmt.Fprintln(w, ui.Bold("NAME")+"\t"+ui.Bold("STATUS")+"\t"+ui.Bold("IMAGE")+"\t"+ui.Bold("AGE"))
-			for _, sess := range sessions {
-				name := sess.Project
-				if name == "" {
-					name = "(default)"
-				}
-				age := cleanup.FormatDuration(time.Since(sess.CreatedAt))
+			for _, row := range rows {
 				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-					name, ui.ColorStatus(sess.Status), ui.Faint(sess.Image), age,
+					row.Name, ui.ColorStatus(row.Status), ui.Faint(row.Image), row.Age,
 				)
 			}
 		} else {
+			sessions, err := store.ListSessions()
+			if err != nil {
+				return fmt.Errorf("listing machines: %w", err)
+			}
+			if len(sessions) == 0 {
+				fmt.Println("No machines running.")
+				return nil
+			}
+
 			_, _ = fmt.Fprintln(w, "USER\tPROJECT\tCONTAINER\tSTATUS\tCONNS\tAGE\tLIFETIME LEFT")
 			for _, sess := range sessions {
 				project := sess.Project
@@ -66,6 +70,73 @@ var listCmd = &cobra.Command{
 		}
 		return w.Flush()
 	},
+}
+
+type localMachineStore interface {
+	ListSessionsByUser(user string) ([]*state.Session, error)
+	ListMachinesByUser(user string) ([]*state.Machine, error)
+}
+
+type localMachineRow struct {
+	Name   string
+	Status string
+	Image  string
+	Age    string
+}
+
+func collectLocalMachineRows(store localMachineStore, user string) ([]localMachineRow, error) {
+	sessions, err := store.ListSessionsByUser(user)
+	if err != nil {
+		return nil, err
+	}
+	machines, err := store.ListMachinesByUser(user)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsByName := make(map[string]localMachineRow, len(sessions)+len(machines))
+	for _, machine := range machines {
+		status := "stopped"
+		if !machine.Initialized {
+			status = "uninitialized"
+		}
+		rowsByName[machine.Name] = localMachineRow{
+			Name:   machine.Name,
+			Status: status,
+			Age:    cleanup.FormatDuration(time.Since(machine.CreatedAt)),
+		}
+	}
+
+	for _, sess := range sessions {
+		name := sess.Project
+		if name == "" {
+			name = "(default)"
+		}
+
+		status := sess.Status
+		if status == state.StatusGracePeriod {
+			status = "grace"
+		}
+
+		rowsByName[name] = localMachineRow{
+			Name:   name,
+			Status: status,
+			Image:  sess.Image,
+			Age:    cleanup.FormatDuration(time.Since(sess.CreatedAt)),
+		}
+	}
+
+	names := make([]string, 0, len(rowsByName))
+	for name := range rowsByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	rows := make([]localMachineRow, 0, len(names))
+	for _, name := range names {
+		rows = append(rows, rowsByName[name])
+	}
+	return rows, nil
 }
 
 func init() {
