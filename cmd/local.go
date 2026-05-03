@@ -104,6 +104,15 @@ func buildLocalSession(name string) (*localSession, error) {
 }
 
 func localDataDir() string {
+	if cfg.ProjectsFile != "" {
+		return filepath.Dir(cfg.ProjectsFile)
+	}
+
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		return filepath.Join(home, ".podspawn")
+	}
+
 	return filepath.Dir(cfg.State.DBPath)
 }
 
