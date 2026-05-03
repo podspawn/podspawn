@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/podspawn/podspawn/internal/config"
+	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -247,6 +248,77 @@ func TestConfigureSessionFromMachineUsesStoredMode(t *testing.T) {
 	}
 	if ls.Session.Project.Mode != "persistent" {
 		t.Fatalf("project mode = %q, want persistent", ls.Session.Project.Mode)
+	}
+}
+
+func TestSetupNamedMachineIgnoresStaleSessionWithoutContainer(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	root := t.TempDir()
+	oldCfg := cfg
+	cfg = config.LocalDefaults()
+	cfg.State.DBPath = filepath.Join(root, "state.db")
+	cfg.ProjectsFile = filepath.Join(root, "projects.yaml")
+	t.Cleanup(func() { cfg = oldCfg })
+
+	remotePath, registeredPath := createProjectRepo(t)
+	projects := map[string]config.ProjectConfig{
+		"backend": {
+			Repo:      remotePath,
+			LocalPath: registeredPath,
+		},
+	}
+	if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := state.Open(cfg.State.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	now := time.Now().UTC()
+	if err := store.CreateSession(&state.Session{
+		User:          "tenant",
+		Project:       "auth-fix",
+		ContainerID:   "ctr-1",
+		ContainerName: "podspawn-tenant-auth-fix",
+		Image:         "ubuntu:24.04",
+		Status:        state.StatusRunning,
+		Connections:   0,
+		CreatedAt:     now,
+		LastActivity:  now,
+		MaxLifetime:   now.Add(8 * time.Hour),
+		Mode:          "grace-period",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ls := &localSession{
+		Session: &spawn.Session{
+			Username:     "tenant",
+			Store:        store,
+			MachineStore: store,
+			Runtime:      runtime.NewFakeRuntime(),
+		},
+		Store: store,
+	}
+
+	created, err := setupNamedMachine(context.Background(), ls, "auth-fix", "backend", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected stale session to be ignored and machine to be created")
+	}
+
+	stale, err := store.GetSession("tenant", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale != nil {
+		t.Fatalf("stale session should be removed, got %+v", stale)
 	}
 }
 

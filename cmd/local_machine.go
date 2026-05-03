@@ -179,6 +179,20 @@ func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName,
 		return false, fmt.Errorf("checking active sessions: %w", err)
 	}
 	if active != nil {
+		if ls.Session.Runtime != nil {
+			alive, err := ls.Session.Runtime.ContainerExists(ctx, active.ContainerName)
+			if err != nil {
+				return false, fmt.Errorf("checking stale session container: %w", err)
+			}
+			if !alive {
+				if err := ls.Store.DeleteSession(ls.Session.Username, name); err != nil {
+					return false, fmt.Errorf("cleaning stale session: %w", err)
+				}
+				active = nil
+			}
+		}
+	}
+	if active != nil {
 		return false, fmt.Errorf("machine %q is already in use by a non-project session", name)
 	}
 
