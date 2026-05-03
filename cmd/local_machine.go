@@ -124,7 +124,7 @@ func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch, m
 	}
 
 	root := localWorkspacesRoot()
-	if err := os.MkdirAll(root, 0755); err != nil {
+	if err := ensureLocalWorkspaceRoot(root); err != nil {
 		return nil, fmt.Errorf("creating workspace root: %w", err)
 	}
 
@@ -245,7 +245,7 @@ func setupEphemeralProjectRun(ctx context.Context, ls *localSession, name, proje
 	}
 
 	root := localWorkspacesRoot()
-	if err := os.MkdirAll(root, 0755); err != nil {
+	if err := ensureLocalWorkspaceRoot(root); err != nil {
 		return fmt.Errorf("creating workspace root: %w", err)
 	}
 

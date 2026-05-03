@@ -123,3 +123,7 @@ func localProjectsRoot() string {
 func localWorkspacesRoot() string {
 	return filepath.Join(localDataDir(), "workspaces")
 }
+
+func ensureLocalWorkspaceRoot(root string) error {
+	return os.MkdirAll(root, 0700)
+}
