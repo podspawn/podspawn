@@ -1,0 +1,169 @@
+package cmd
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/podspawn/podspawn/internal/runtime"
+	"github.com/podspawn/podspawn/internal/state"
+)
+
+func TestRemoveLocalMachineDeletesStoppedWorkspace(t *testing.T) {
+	store := state.NewFakeStore()
+	rt := runtime.NewFakeRuntime()
+	workspacePath := filepath.Join(t.TempDir(), "auth-fix")
+	if err := os.MkdirAll(workspacePath, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.CreateMachine(&state.Machine{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		RepoURL:       "https://github.com/podspawn/example.git",
+		Branch:        "main",
+		Mode:          "grace-period",
+		WorkspacePath: workspacePath,
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removeLocalMachine(context.Background(), rt, store, "tenant", "auth-fix", false); err != nil {
+		t.Fatalf("removeLocalMachine() error = %v", err)
+	}
+
+	got, err := store.GetMachine("tenant", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("machine should be deleted, got %+v", got)
+	}
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Fatalf("workspace should be removed, stat err = %v", err)
+	}
+}
+
+func TestRemoveLocalMachineRefusesRunningMachineWithoutForce(t *testing.T) {
+	store := state.NewFakeStore()
+	rt := runtime.NewFakeRuntime()
+	workspacePath := filepath.Join(t.TempDir(), "auth-fix")
+	if err := os.MkdirAll(workspacePath, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.CreateMachine(&state.Machine{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		RepoURL:       "https://github.com/podspawn/example.git",
+		Branch:        "main",
+		Mode:          "grace-period",
+		WorkspacePath: workspacePath,
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(&state.Session{
+		User:          "tenant",
+		Project:       "auth-fix",
+		ContainerID:   "ctr-1",
+		ContainerName: "podspawn-tenant-auth-fix",
+		Image:         "ubuntu:24.04",
+		Status:        state.StatusRunning,
+		Connections:   1,
+		CreatedAt:     time.Now().UTC(),
+		LastActivity:  time.Now().UTC(),
+		MaxLifetime:   time.Now().UTC().Add(8 * time.Hour),
+		Mode:          "grace-period",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rt.Containers["podspawn-tenant-auth-fix"] = true
+
+	err := removeLocalMachine(context.Background(), rt, store, "tenant", "auth-fix", false)
+	if err == nil {
+		t.Fatal("expected removeLocalMachine() to fail without --force")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("error = %q, want --force hint", err)
+	}
+}
+
+func TestRemoveLocalMachineForceRemovesRunningMachine(t *testing.T) {
+	store := state.NewFakeStore()
+	rt := runtime.NewFakeRuntime()
+	workspacePath := filepath.Join(t.TempDir(), "auth-fix")
+	if err := os.MkdirAll(workspacePath, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.CreateMachine(&state.Machine{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		RepoURL:       "https://github.com/podspawn/example.git",
+		Branch:        "main",
+		Mode:          "grace-period",
+		WorkspacePath: workspacePath,
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(&state.Session{
+		User:          "tenant",
+		Project:       "auth-fix",
+		ContainerID:   "ctr-1",
+		ContainerName: "podspawn-tenant-auth-fix",
+		Image:         "ubuntu:24.04",
+		Status:        state.StatusRunning,
+		Connections:   1,
+		CreatedAt:     time.Now().UTC(),
+		LastActivity:  time.Now().UTC(),
+		MaxLifetime:   time.Now().UTC().Add(8 * time.Hour),
+		Mode:          "grace-period",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rt.Containers["podspawn-tenant-auth-fix"] = true
+
+	if err := removeLocalMachine(context.Background(), rt, store, "tenant", "auth-fix", true); err != nil {
+		t.Fatalf("removeLocalMachine() error = %v", err)
+	}
+
+	gotMachine, err := store.GetMachine("tenant", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMachine != nil {
+		t.Fatalf("machine should be deleted, got %+v", gotMachine)
+	}
+	gotSession, err := store.GetSession("tenant", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSession != nil {
+		t.Fatalf("session should be deleted, got %+v", gotSession)
+	}
+	if _, exists := rt.Containers["podspawn-tenant-auth-fix"]; exists {
+		t.Fatal("running container should be removed")
+	}
+}
+
+func TestRemoveLocalMachineRejectsEphemeralNames(t *testing.T) {
+	store := state.NewFakeStore()
+	rt := runtime.NewFakeRuntime()
+
+	err := removeLocalMachine(context.Background(), rt, store, "tenant", ".tmp-auth-fix-123", false)
+	if err == nil {
+		t.Fatal("expected removeLocalMachine() to reject ephemeral names")
+	}
+	if !strings.Contains(err.Error(), ".tmp-") {
+		t.Fatalf("error = %q, want .tmp- hint", err)
+	}
+}
