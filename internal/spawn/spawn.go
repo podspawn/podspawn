@@ -48,6 +48,7 @@ type Session struct {
 	WorkspacePath            string
 	RemoveWorkspaceOnDestroy bool
 	RequireProjectImage      bool
+	HookFatal                bool
 
 	WorkspaceMounts []runtime.Mount       // CWD bind mount for podspawn dev
 	PortBindings    []runtime.PortBinding // port forwarding for podspawn dev
@@ -609,9 +610,11 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 			}
 		}
 		if err := podfile.RunHookE(ctx, s.Runtime, containerName, s.Username, "on_create", s.pf.OnCreate); err != nil {
-			return &HookError{Hook: "on_create", Err: err}
-		}
-		if s.Machine != nil && s.MachineStore != nil {
+			if s.HookFatal {
+				return &HookError{Hook: "on_create", Err: err}
+			}
+			slog.Warn("on_create hook failed", "user", s.Username, "project", s.ProjectName, "error", err)
+		} else if s.Machine != nil && s.MachineStore != nil {
 			if err := s.MachineStore.UpdateMachineInitialized(s.Username, s.Machine.Name, true); err != nil {
 				return fmt.Errorf("marking machine initialized: %w", err)
 			}

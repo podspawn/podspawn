@@ -69,6 +69,7 @@ func buildLocalSession(name string) (*localSession, error) {
 		MaxPerUser:   cfg.Resources.MaxPerUser,
 		Store:        store,
 		MachineStore: store,
+		HookFatal:    true,
 	}
 
 	ls := &localSession{

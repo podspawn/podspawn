@@ -1876,6 +1876,7 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 		Username:      "deploy",
 		ProjectName:   "auth-fix",
 		Project:       &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
+		HookFatal:     true,
 		Runtime:       fake,
 		Image:         "ubuntu:24.04",
 		Shell:         "/bin/bash",
@@ -1917,6 +1918,48 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 	}
 	if gotSession != nil {
 		t.Fatal("failed initialization should not leave a session row behind")
+	}
+}
+
+func TestRunWarnsOnCreateFailureWhenHookFatalDisabled(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	fake.ExitCodes = []int{0, 9, 0}
+	store := state.NewFakeStore()
+
+	projectDir := t.TempDir()
+	podfileContent := []byte("base: ubuntu:24.04\non_create: exit 9\n")
+	if err := os.WriteFile(filepath.Join(projectDir, "podfile.yaml"), podfileContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images[podfile.ComputeTag("backend", podfileContent)] = true
+
+	sess := &Session{
+		Username:            "deploy",
+		ProjectName:         "backend",
+		Project:             &config.ProjectConfig{Repo: "git@example.com:acme/backend.git", LocalPath: projectDir},
+		RequireProjectImage: true,
+		HookFatal:           false,
+		Runtime:             fake,
+		Image:               "ubuntu:24.04",
+		Shell:               "/bin/bash",
+		Store:               store,
+		LockDir:             t.TempDir(),
+		GracePeriod:         60 * time.Second,
+		MaxLifetime:         8 * time.Hour,
+		Mode:                "grace-period",
+	}
+	t.Setenv("SSH_ORIGINAL_COMMAND", "pwd")
+
+	exitCode, err := sess.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("Run() exitCode = %d, want 0", exitCode)
+	}
+
+	if len(fake.ExecCalls) < 3 {
+		t.Fatalf("expected on_create failure to still continue routing, got %d exec calls", len(fake.ExecCalls))
 	}
 }
 
