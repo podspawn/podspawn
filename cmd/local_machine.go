@@ -70,6 +70,27 @@ func resolveProjectBranch(ctx context.Context, project config.ProjectConfig, cli
 	return branch, nil
 }
 
+func applyWorkspacePodfileBranch(ctx context.Context, workspacePath, branch, cliBranch string) (*podfile.Podfile, string, error) {
+	pf, err := loadResolvedPodfile(workspacePath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if cliBranch != "" || pf.Branch == "" || pf.Branch == branch {
+		return pf, branch, nil
+	}
+
+	if err := podfile.CheckoutBranch(ctx, workspacePath, pf.Branch); err != nil {
+		return nil, "", err
+	}
+
+	pf, err = loadResolvedPodfile(workspacePath)
+	if err != nil {
+		return nil, "", err
+	}
+	return pf, pf.Branch, nil
+}
+
 func configureSessionFromMachine(ls *localSession, machine *state.Machine, removeWorkspaceOnDestroy bool) {
 	project := &config.ProjectConfig{
 		Repo:      machine.RepoURL,
@@ -112,10 +133,10 @@ func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch st
 		return nil, err
 	}
 
-	pf, err := loadResolvedPodfile(workspacePath)
+	pf, branch, err := applyWorkspacePodfileBranch(ctx, workspacePath, branch, cliBranch)
 	if err != nil {
 		_ = os.RemoveAll(workspacePath)
-		return nil, fmt.Errorf("loading podfile from workspace: %w", err)
+		return nil, fmt.Errorf("resolving workspace podfile: %w", err)
 	}
 
 	workspaceTarget := pf.Workspace
@@ -218,10 +239,10 @@ func setupEphemeralProjectRun(ctx context.Context, ls *localSession, name, proje
 		return fmt.Errorf("creating workspace: %w", err)
 	}
 
-	pf, err := loadResolvedPodfile(workspacePath)
+	pf, _, err := applyWorkspacePodfileBranch(ctx, workspacePath, effectiveBranch, branch)
 	if err != nil {
 		_ = os.RemoveAll(workspacePath)
-		return fmt.Errorf("loading podfile from workspace: %w", err)
+		return fmt.Errorf("resolving workspace podfile: %w", err)
 	}
 
 	workspaceTarget := pf.Workspace

@@ -129,6 +129,66 @@ func TestSetupNamedMachineRejectsBranchMismatch(t *testing.T) {
 	}
 }
 
+func TestSetupNamedMachineUsesPodfileBranchWithoutRegisteredCheckout(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	root := t.TempDir()
+	oldCfg := cfg
+	cfg = config.LocalDefaults()
+	cfg.State.DBPath = filepath.Join(root, "state.db")
+	cfg.ProjectsFile = filepath.Join(root, "projects.yaml")
+	t.Cleanup(func() { cfg = oldCfg })
+
+	remotePath, _ := createProjectRepo(t)
+	projects := map[string]config.ProjectConfig{
+		"backend": {
+			Repo: remotePath,
+		},
+	}
+	if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := state.Open(cfg.State.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	ls := &localSession{
+		Session: &spawn.Session{
+			Username:     "tenant",
+			Store:        store,
+			MachineStore: store,
+		},
+		Store: store,
+	}
+
+	created, err := setupNamedMachine(context.Background(), ls, "auth-fix", "backend", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected a new machine to be created")
+	}
+
+	machine, err := store.GetMachine("tenant", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if machine == nil {
+		t.Fatal("expected machine record")
+	}
+	if machine.Branch != "feat/auth-retry" {
+		t.Fatalf("branch = %q, want feat/auth-retry", machine.Branch)
+	}
+
+	currentBranch := gitOutput(t, machine.WorkspacePath, "branch", "--show-current")
+	if currentBranch != "feat/auth-retry" {
+		t.Fatalf("workspace branch = %q, want feat/auth-retry", currentBranch)
+	}
+}
+
 func createProjectRepo(t *testing.T) (remotePath, registeredPath string) {
 	t.Helper()
 

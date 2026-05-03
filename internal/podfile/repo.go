@@ -53,3 +53,24 @@ func DefaultBranch(ctx context.Context, url string) (string, error) {
 
 	return "", fmt.Errorf("could not determine default branch for %s", url)
 }
+
+func CheckoutBranch(ctx context.Context, dir, branch string) error {
+	if branch == "" {
+		return nil
+	}
+
+	refspec := branch + ":refs/remotes/origin/" + branch
+	fetch := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "origin", refspec)
+	fetchOut, err := fetch.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git fetch %s in %s: %s: %w", branch, dir, string(fetchOut), err)
+	}
+
+	checkout := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "-B", branch, "origin/"+branch)
+	checkoutOut, err := checkout.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git checkout %s in %s: %s: %w", branch, dir, string(checkoutOut), err)
+	}
+
+	return nil
+}
