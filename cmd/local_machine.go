@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -53,7 +54,8 @@ func resolveProjectBranch(ctx context.Context, project config.ProjectConfig, cli
 
 	branch, err := podfile.DefaultBranch(ctx, project.Repo)
 	if err != nil {
-		return "", err
+		slog.Warn("failed to resolve default branch, falling back to main", "repo", project.Repo, "error", err)
+		return "main", nil
 	}
 	return branch, nil
 }

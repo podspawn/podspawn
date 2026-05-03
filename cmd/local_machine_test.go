@@ -322,6 +322,20 @@ func TestSetupNamedMachineIgnoresStaleSessionWithoutContainer(t *testing.T) {
 	}
 }
 
+func TestResolveProjectBranchFallsBackToMainWhenDefaultLookupFails(t *testing.T) {
+	project := config.ProjectConfig{
+		Repo: "file:///definitely-missing-podspawn-repo.git",
+	}
+
+	branch, err := resolveProjectBranch(context.Background(), project, "")
+	if err != nil {
+		t.Fatalf("resolveProjectBranch() error = %v", err)
+	}
+	if branch != "main" {
+		t.Fatalf("branch = %q, want main", branch)
+	}
+}
+
 func createProjectRepo(t *testing.T) (remotePath, registeredPath string) {
 	t.Helper()
 
