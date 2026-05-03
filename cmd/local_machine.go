@@ -266,7 +266,6 @@ func setupEphemeralProjectRun(ctx context.Context, ls *localSession, name, proje
 		workspaceTarget = "/workspace/" + projectName
 	}
 
-	ls.Session.ProjectName = name
 	ls.Session.Project = &config.ProjectConfig{
 		Repo:      project.Repo,
 		LocalPath: workspacePath,
