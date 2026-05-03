@@ -190,6 +190,7 @@ If `on_create` fails:
 - This is a reversible decision and should be documented.
 - The machine stays uninitialized, so the next `create` or `shell` retries `on_create`.
 - `on_create` must therefore be idempotent. A normal `stop` followed by `shell` does not rerun it once initialization succeeded.
+- Local `create` does not come through SSH, so `SSH_AUTH_SOCK` is usually absent. Hooks that clone private repos over SSH need host-side git auth or another credential path.
 
 ## Validation
 
