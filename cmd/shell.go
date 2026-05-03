@@ -2,11 +2,18 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
+	"github.com/podspawn/podspawn/internal/state"
 	"github.com/spf13/cobra"
 )
+
+type shellTargetStore interface {
+	GetMachine(user, name string) (*state.Machine, error)
+	GetSession(user, project string) (*state.Session, error)
+}
 
 var shellCmd = &cobra.Command{
 	Use:   "shell [user@]<name>",
@@ -30,6 +37,10 @@ var shellCmd = &cobra.Command{
 		}
 
 		if isLocalMode {
+			if err := requireExistingShellTarget(ls.Store, ls.Session.Username, name); err != nil {
+				return err
+			}
+
 			machine, machineErr := ls.Store.GetMachine(ls.Session.Username, name)
 			if machineErr != nil {
 				return machineErr
@@ -48,6 +59,26 @@ var shellCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+func requireExistingShellTarget(store shellTargetStore, user, name string) error {
+	machine, err := store.GetMachine(user, name)
+	if err != nil {
+		return err
+	}
+	if machine != nil {
+		return nil
+	}
+
+	session, err := store.GetSession(user, name)
+	if err != nil {
+		return err
+	}
+	if session != nil {
+		return nil
+	}
+
+	return fmt.Errorf("no machine or session named %q for user %q", name, user)
 }
 
 func parseShellTarget(target string) (user, project string) {
