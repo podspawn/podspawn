@@ -131,51 +131,50 @@ func migrate(db *sql.DB) error {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
 
-	if version < 3 {
-		// Sessions are ephemeral; safe to recreate on upgrade from pre-v3 schemas.
-		_, _ = db.Exec(`DROP TABLE IF EXISTS sessions`)
-		if err := ensureSessionsTable(db); err != nil {
-			return err
-		}
-		version = 3
-	}
-
-	if version == 3 {
-		if err := ensureMachinesTable(db); err != nil {
-			return err
-		}
-		version = 4
-	}
-
-	if version == 4 {
-		hasMode, err := machineModeColumnExists(db)
-		if err != nil {
-			return err
-		}
-		if !hasMode {
-			if _, err := db.Exec(`ALTER TABLE machines ADD COLUMN mode TEXT NOT NULL DEFAULT 'grace-period'`); err != nil {
-				return fmt.Errorf("adding machines.mode column: %w", err)
+	for version < schemaVersion {
+		switch version {
+		case 0:
+			if err := ensureSessionsTable(db); err != nil {
+				return err
 			}
-			if _, err := db.Exec(`
-				UPDATE machines
-				SET mode = COALESCE(
-					(SELECT mode FROM sessions WHERE sessions.user = machines.user AND sessions.project = machines.name),
-					'grace-period'
-				)`); err != nil {
-				return fmt.Errorf("backfilling machines.mode: %w", err)
+			if err := ensureMachinesTable(db); err != nil {
+				return err
 			}
+			version = 5
+		case 1, 2:
+			// Sessions are ephemeral; safe to recreate on upgrade from pre-v3 schemas.
+			_, _ = db.Exec(`DROP TABLE IF EXISTS sessions`)
+			if err := ensureSessionsTable(db); err != nil {
+				return err
+			}
+			version = 3
+		case 3:
+			if err := ensureMachinesTable(db); err != nil {
+				return err
+			}
+			version = 4
+		case 4:
+			hasMode, err := machineModeColumnExists(db)
+			if err != nil {
+				return err
+			}
+			if !hasMode {
+				if _, err := db.Exec(`ALTER TABLE machines ADD COLUMN mode TEXT NOT NULL DEFAULT 'grace-period'`); err != nil {
+					return fmt.Errorf("adding machines.mode column: %w", err)
+				}
+				if _, err := db.Exec(`
+					UPDATE machines
+					SET mode = COALESCE(
+						(SELECT mode FROM sessions WHERE sessions.user = machines.user AND sessions.project = machines.name),
+						'grace-period'
+					)`); err != nil {
+					return fmt.Errorf("backfilling machines.mode: %w", err)
+				}
+			}
+			version = 5
+		default:
+			return fmt.Errorf("unsupported schema version %d", version)
 		}
-		version = 5
-	}
-
-	if version == 0 {
-		if err := ensureSessionsTable(db); err != nil {
-			return err
-		}
-		if err := ensureMachinesTable(db); err != nil {
-			return err
-		}
-		version = schemaVersion
 	}
 
 	if err := consolidateSchemaVersion(db, version); err != nil {
