@@ -39,18 +39,6 @@ func loadRegisteredProject(name string) (config.ProjectConfig, error) {
 	return project, nil
 }
 
-func projectMode(name string) string {
-	projects, err := config.LoadProjects(cfg.ProjectsFile)
-	if err != nil {
-		return ""
-	}
-	project, ok := projects[name]
-	if !ok {
-		return ""
-	}
-	return project.Mode
-}
-
 func resolveProjectBranch(ctx context.Context, project config.ProjectConfig, cliBranch string) (string, error) {
 	if cliBranch != "" {
 		return cliBranch, nil
@@ -68,6 +56,17 @@ func resolveProjectBranch(ctx context.Context, project config.ProjectConfig, cli
 		return "", err
 	}
 	return branch, nil
+}
+
+func resolveMachineMode(baseMode string, project config.ProjectConfig, userOverrides *config.UserOverrides) string {
+	mode := baseMode
+	if userOverrides != nil && config.ValidMode(userOverrides.Mode) {
+		mode = userOverrides.Mode
+	}
+	if config.ValidMode(project.Mode) {
+		mode = project.Mode
+	}
+	return mode
 }
 
 func applyWorkspacePodfileBranch(ctx context.Context, workspacePath, branch, cliBranch string) (*podfile.Podfile, string, error) {
@@ -95,7 +94,7 @@ func configureSessionFromMachine(ls *localSession, machine *state.Machine, remov
 	project := &config.ProjectConfig{
 		Repo:      machine.RepoURL,
 		LocalPath: machine.WorkspacePath,
-		Mode:      projectMode(machine.Project),
+		Mode:      machine.Mode,
 	}
 
 	ls.Session.ProjectName = machine.Name
@@ -111,7 +110,7 @@ func configureSessionFromMachine(ls *localSession, machine *state.Machine, remov
 	ls.Session.WorkingDir = machine.WorkspaceTarget
 }
 
-func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch string) (*state.Machine, error) {
+func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch, mode string, userOverrides *config.UserOverrides) (*state.Machine, error) {
 	project, err := loadRegisteredProject(projectName)
 	if err != nil {
 		return nil, err
@@ -150,6 +149,7 @@ func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch st
 		Project:         projectName,
 		RepoURL:         project.Repo,
 		Branch:          branch,
+		Mode:            resolveMachineMode(mode, project, userOverrides),
 		WorkspacePath:   workspacePath,
 		WorkspaceTarget: workspaceTarget,
 		CreatedAt:       time.Now().UTC(),
@@ -186,7 +186,7 @@ func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName,
 		return false, nil
 	}
 
-	machine, err := createMachineWorkspace(ctx, name, projectName, branch)
+	machine, err := createMachineWorkspace(ctx, name, projectName, branch, ls.Session.Mode, ls.Session.UserOverrides)
 	if err != nil {
 		return false, fmt.Errorf("creating workspace: %w", err)
 	}

@@ -38,6 +38,7 @@ type Machine struct {
 	Project         string
 	RepoURL         string
 	Branch          string
+	Mode            string
 	WorkspacePath   string
 	WorkspaceTarget string
 	CreatedAt       time.Time
@@ -74,7 +75,7 @@ type Store struct {
 var _ SessionStore = (*Store)(nil)
 var _ MachineStore = (*Store)(nil)
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 func Open(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -146,6 +147,27 @@ func migrate(db *sql.DB) error {
 		version = 4
 	}
 
+	if version == 4 {
+		hasMode, err := machineModeColumnExists(db)
+		if err != nil {
+			return err
+		}
+		if !hasMode {
+			if _, err := db.Exec(`ALTER TABLE machines ADD COLUMN mode TEXT NOT NULL DEFAULT 'grace-period'`); err != nil {
+				return fmt.Errorf("adding machines.mode column: %w", err)
+			}
+			if _, err := db.Exec(`
+				UPDATE machines
+				SET mode = COALESCE(
+					(SELECT mode FROM sessions WHERE sessions.user = machines.user AND sessions.project = machines.name),
+					'grace-period'
+				)`); err != nil {
+				return fmt.Errorf("backfilling machines.mode: %w", err)
+			}
+		}
+		version = 5
+	}
+
 	if version == 0 {
 		if err := ensureSessionsTable(db); err != nil {
 			return err
@@ -196,6 +218,7 @@ func ensureMachinesTable(db *sql.DB) error {
 			project          TEXT NOT NULL,
 			repo_url         TEXT NOT NULL,
 			branch           TEXT NOT NULL DEFAULT '',
+			mode             TEXT NOT NULL DEFAULT 'grace-period',
 			workspace_path   TEXT NOT NULL,
 			workspace_target TEXT NOT NULL,
 			created_at       DATETIME NOT NULL,
@@ -206,6 +229,29 @@ func ensureMachinesTable(db *sql.DB) error {
 		return fmt.Errorf("creating machines table: %w", err)
 	}
 	return nil
+}
+
+func machineModeColumnExists(db *sql.DB) (bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(machines)`)
+	if err != nil {
+		return false, fmt.Errorf("reading machines schema: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false, fmt.Errorf("scanning machines schema: %w", err)
+		}
+		if name == "mode" {
+			return true, nil
+		}
+	}
+
+	return false, rows.Err()
 }
 
 // consolidateSchemaVersion ensures exactly one row exists with the given version.
@@ -232,21 +278,21 @@ func (s *Store) CreateMachine(machine *Machine) error {
 		initialized = 1
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO machines (user, name, project, repo_url, branch, workspace_path, workspace_target, created_at, initialized)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO machines (user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		machine.User, machine.Name, machine.Project, machine.RepoURL, machine.Branch,
-		machine.WorkspacePath, machine.WorkspaceTarget, machine.CreatedAt.UTC(), initialized,
+		machine.Mode, machine.WorkspacePath, machine.WorkspaceTarget, machine.CreatedAt.UTC(), initialized,
 	)
 	return err
 }
 
-const machineColumns = `user, name, project, repo_url, branch, workspace_path, workspace_target, created_at, initialized`
+const machineColumns = `user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized`
 
 func scanMachine(scanner interface{ Scan(...any) error }) (*Machine, error) {
 	machine := &Machine{}
 	var initialized int
 	err := scanner.Scan(
-		&machine.User, &machine.Name, &machine.Project, &machine.RepoURL, &machine.Branch,
+		&machine.User, &machine.Name, &machine.Project, &machine.RepoURL, &machine.Branch, &machine.Mode,
 		&machine.WorkspacePath, &machine.WorkspaceTarget, &machine.CreatedAt, &initialized,
 	)
 	machine.Initialized = initialized == 1

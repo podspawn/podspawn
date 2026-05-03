@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/spawn"
@@ -28,6 +29,7 @@ func TestSetupNamedMachineCreatesMachineRecord(t *testing.T) {
 		"backend": {
 			Repo:      remotePath,
 			LocalPath: registeredPath,
+			Mode:      "persistent",
 		},
 	}
 	if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
@@ -72,6 +74,9 @@ func TestSetupNamedMachineCreatesMachineRecord(t *testing.T) {
 	}
 	if machine.WorkspaceTarget != "/workspace/backend" {
 		t.Errorf("workspace_target = %q, want /workspace/backend", machine.WorkspaceTarget)
+	}
+	if machine.Mode != "persistent" {
+		t.Errorf("mode = %q, want persistent", machine.Mode)
 	}
 
 	currentBranch := gitOutput(t, machine.WorkspacePath, "branch", "--show-current")
@@ -186,6 +191,62 @@ func TestSetupNamedMachineUsesPodfileBranchWithoutRegisteredCheckout(t *testing.
 	currentBranch := gitOutput(t, machine.WorkspacePath, "branch", "--show-current")
 	if currentBranch != "feat/auth-retry" {
 		t.Fatalf("workspace branch = %q, want feat/auth-retry", currentBranch)
+	}
+}
+
+func TestConfigureSessionFromMachineUsesStoredMode(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	root := t.TempDir()
+	oldCfg := cfg
+	cfg = config.LocalDefaults()
+	cfg.State.DBPath = filepath.Join(root, "state.db")
+	cfg.ProjectsFile = filepath.Join(root, "projects.yaml")
+	t.Cleanup(func() { cfg = oldCfg })
+
+	projects := map[string]config.ProjectConfig{
+		"backend": {
+			Repo: "https://github.com/podspawn/example.git",
+			Mode: "grace-period",
+		},
+	}
+	if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := state.Open(cfg.State.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	ls := &localSession{
+		Session: &spawn.Session{
+			Username: "tenant",
+			Mode:     "grace-period",
+		},
+		Store: store,
+	}
+
+	machine := &state.Machine{
+		User:            "tenant",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "https://github.com/podspawn/example.git",
+		Branch:          "main",
+		Mode:            "persistent",
+		WorkspacePath:   filepath.Join(root, "workspaces", "auth-fix"),
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	configureSessionFromMachine(ls, machine, false)
+
+	if ls.Session.Project == nil {
+		t.Fatal("expected project config")
+	}
+	if ls.Session.Project.Mode != "persistent" {
+		t.Fatalf("project mode = %q, want persistent", ls.Session.Project.Mode)
 	}
 }
 

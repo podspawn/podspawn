@@ -191,6 +191,9 @@ func (f *FakeStore) CreateMachine(machine *Machine) error {
 		return fmt.Errorf("machine already exists for %s/%s", machine.User, machine.Name)
 	}
 	cp := *machine
+	if cp.Mode == "" {
+		cp.Mode = "grace-period"
+	}
 	f.Machines[key] = &cp
 	return nil
 }

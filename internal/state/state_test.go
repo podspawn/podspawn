@@ -44,6 +44,7 @@ func testMachineData(user, name string) *Machine {
 		Project:         "backend",
 		RepoURL:         "git@example.com:acme/backend.git",
 		Branch:          "feat/auth-retry",
+		Mode:            "persistent",
 		WorkspacePath:   "/tmp/workspaces/" + name,
 		WorkspaceTarget: "/workspace/backend",
 		CreatedAt:       time.Now().UTC(),
@@ -318,6 +319,9 @@ func TestCreateAndGetMachine(t *testing.T) {
 	if got.WorkspaceTarget != "/workspace/backend" {
 		t.Errorf("workspace_target = %q, want /workspace/backend", got.WorkspaceTarget)
 	}
+	if got.Mode != "persistent" {
+		t.Errorf("mode = %q, want persistent", got.Mode)
+	}
 }
 
 func TestUpdateMachineInitialized(t *testing.T) {
@@ -362,6 +366,24 @@ func TestListMachinesByUser(t *testing.T) {
 	}
 	if machines[0].Name != "alpha" || machines[1].Name != "beta" {
 		t.Fatalf("machines out of order: %+v", machines)
+	}
+}
+
+func TestMachineModeRoundTrip(t *testing.T) {
+	store := openTestDB(t)
+	machine := testMachineData("deploy", "auth-fix")
+	machine.Mode = "destroy-on-disconnect"
+
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "destroy-on-disconnect" {
+		t.Fatalf("mode = %q, want destroy-on-disconnect", got.Mode)
 	}
 }
 
@@ -821,6 +843,91 @@ func TestMigrateFromVersion3PreservesSessionsAndAddsMachines(t *testing.T) {
 	}
 }
 
+func TestMigrateFromVersion4BackfillsMachineModeFromSession(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (4)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE sessions (
+		user           TEXT NOT NULL,
+		project        TEXT NOT NULL DEFAULT '',
+		container_id   TEXT NOT NULL,
+		container_name TEXT NOT NULL,
+		image          TEXT NOT NULL,
+		status         TEXT NOT NULL DEFAULT 'running',
+		connections    INTEGER NOT NULL DEFAULT 1,
+		grace_expiry   DATETIME,
+		created_at     DATETIME NOT NULL,
+		last_activity  DATETIME NOT NULL,
+		max_lifetime   DATETIME NOT NULL,
+		network_id     TEXT NOT NULL DEFAULT '',
+		service_ids    TEXT NOT NULL DEFAULT '',
+		mode           TEXT NOT NULL DEFAULT 'grace-period',
+		PRIMARY KEY (user, project)
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE machines (
+		user             TEXT NOT NULL,
+		name             TEXT NOT NULL,
+		project          TEXT NOT NULL,
+		repo_url         TEXT NOT NULL,
+		branch           TEXT NOT NULL DEFAULT '',
+		workspace_path   TEXT NOT NULL,
+		workspace_target TEXT NOT NULL,
+		created_at       DATETIME NOT NULL,
+		initialized      INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (user, name)
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	_, err = db.Exec(`INSERT INTO sessions (user, project, container_id, container_name, image, status, connections, created_at, last_activity, max_lifetime, network_id, service_ids, mode)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"deploy", "auth-fix", "ctr-1", "podspawn-deploy-auth-fix", "ubuntu:24.04", "running", 1,
+		now, now, now.Add(8*time.Hour), "", "", "persistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO machines (user, name, project, repo_url, branch, workspace_path, workspace_target, created_at, initialized)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"deploy", "auth-fix", "backend", "git@example.com:acme/backend.git", "feat/auth-retry", "/tmp/workspaces/auth-fix", "/workspace/backend", now, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	got, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected machine after migration")
+	}
+	if got.Mode != "persistent" {
+		t.Fatalf("mode = %q, want persistent", got.Mode)
+	}
+}
+
 func TestCancelGracePeriodRestoresRunning(t *testing.T) {
 	store := openTestDB(t)
 
@@ -986,6 +1093,9 @@ func TestFakeStoreMachineLifecycle(t *testing.T) {
 	}
 	if got == nil || got.Project != "backend" {
 		t.Fatalf("unexpected machine: %+v", got)
+	}
+	if got.Mode != "persistent" {
+		t.Fatalf("mode = %q, want persistent", got.Mode)
 	}
 
 	if err := fs.UpdateMachineInitialized("deploy", "auth-fix", true); err != nil {
