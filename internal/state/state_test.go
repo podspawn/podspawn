@@ -1,9 +1,12 @@
 package state
 
 import (
+	"bytes"
 	"database/sql"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -768,6 +771,54 @@ func TestMigrateFromVersion1(t *testing.T) {
 	}
 	if got.NetworkID != "net-migrated" {
 		t.Errorf("network_id = %q, want net-migrated", got.NetworkID)
+	}
+}
+
+func TestMigrateFromVersion1WarnsAboutDroppedSessions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "migrate.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE sessions (
+		user TEXT NOT NULL,
+		project TEXT NOT NULL DEFAULT '',
+		container_id TEXT NOT NULL,
+		PRIMARY KEY (user, project)
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open after v1 migration failed: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	output := logs.String()
+	for _, want := range []string{
+		"dropping legacy sessions during schema migration",
+		"docker ps -f label=managed-by=podspawn",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("migration logs %q missing %q", output, want)
+		}
 	}
 }
 

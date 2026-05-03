@@ -3,6 +3,7 @@ package state
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -143,6 +144,7 @@ func migrate(db *sql.DB) error {
 			version = 5
 		case 1, 2:
 			// Sessions are ephemeral; safe to recreate on upgrade from pre-v3 schemas.
+			slog.Warn("dropping legacy sessions during schema migration; check for orphaned containers with docker ps -f label=managed-by=podspawn", "from_version", version)
 			_, _ = db.Exec(`DROP TABLE IF EXISTS sessions`)
 			if err := ensureSessionsTable(db); err != nil {
 				return err
