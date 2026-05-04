@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/spawn"
@@ -336,6 +338,70 @@ func TestResolveProjectBranchFallsBackToMainWhenDefaultLookupFails(t *testing.T)
 	}
 }
 
+func TestSetupNamedMachineLogsAuditEvent(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	root := t.TempDir()
+	oldCfg := cfg
+	cfg = config.LocalDefaults()
+	cfg.State.DBPath = filepath.Join(root, "state.db")
+	cfg.ProjectsFile = filepath.Join(root, "projects.yaml")
+	t.Cleanup(func() { cfg = oldCfg })
+
+	remotePath, registeredPath := createProjectRepo(t)
+	projects := map[string]config.ProjectConfig{
+		"backend": {
+			Repo:      remotePath,
+			LocalPath: registeredPath,
+		},
+	}
+	if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := state.Open(cfg.State.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	auditPath := filepath.Join(root, "audit.jsonl")
+	logger, err := audit.Open(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = logger.Close() }()
+
+	ls := &localSession{
+		Session: &spawn.Session{
+			Username:     "tenant",
+			Store:        store,
+			MachineStore: store,
+			Audit:        logger,
+		},
+		Store: store,
+	}
+
+	created, err := setupNamedMachine(context.Background(), ls, "auth-fix", "backend", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected a new machine to be created")
+	}
+
+	entry := readSingleAuditEntry(t, auditPath)
+	if entry["event"] != "machine.create" {
+		t.Fatalf("event = %q, want machine.create", entry["event"])
+	}
+	if entry["project"] != "backend" {
+		t.Fatalf("project = %q, want backend", entry["project"])
+	}
+	if entry["branch"] != "feat/auth-retry" {
+		t.Fatalf("branch = %q, want feat/auth-retry", entry["branch"])
+	}
+}
+
 func createProjectRepo(t *testing.T) (remotePath, registeredPath string) {
 	t.Helper()
 
@@ -392,4 +458,18 @@ func gitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func readSingleAuditEntry(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+	return entry
 }

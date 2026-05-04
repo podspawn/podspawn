@@ -212,6 +212,7 @@ func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName,
 		_ = os.RemoveAll(machine.WorkspacePath)
 		return false, fmt.Errorf("recording machine: %w", err)
 	}
+	ls.Session.Audit.MachineCreate(machine.User, machine.Name, machine.Project, machine.Branch, machine.WorkspacePath)
 
 	configureSessionFromMachine(ls, machine, false)
 	return true, nil
@@ -284,6 +285,14 @@ func setupEphemeralProjectRun(ctx context.Context, ls *localSession, name, proje
 
 func cleanupNewMachineOnFailure(ls *localSession) {
 	if ls.Session.Machine != nil {
+		ls.Session.Audit.MachineDelete(
+			ls.Session.Username,
+			ls.Session.Machine.Name,
+			ls.Session.Machine.Project,
+			ls.Session.Machine.Branch,
+			ls.Session.Machine.WorkspacePath,
+			"create_failed",
+		)
 		_ = ls.Store.DeleteMachine(ls.Session.Username, ls.Session.Machine.Name)
 	}
 	if ls.Session.WorkspacePath != "" {

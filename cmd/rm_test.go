@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -33,7 +35,7 @@ func TestRemoveLocalMachineDeletesStoppedWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := removeLocalMachine(context.Background(), rt, store, "tenant", "auth-fix", false); err != nil {
+	if err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", "auth-fix", false); err != nil {
 		t.Fatalf("removeLocalMachine() error = %v", err)
 	}
 
@@ -86,7 +88,7 @@ func TestRemoveLocalMachineRefusesRunningMachineWithoutForce(t *testing.T) {
 	}
 	rt.Containers["podspawn-tenant-auth-fix"] = true
 
-	err := removeLocalMachine(context.Background(), rt, store, "tenant", "auth-fix", false)
+	err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", "auth-fix", false)
 	if err == nil {
 		t.Fatal("expected removeLocalMachine() to fail without --force")
 	}
@@ -132,7 +134,7 @@ func TestRemoveLocalMachineForceRemovesRunningMachine(t *testing.T) {
 	}
 	rt.Containers["podspawn-tenant-auth-fix"] = true
 
-	if err := removeLocalMachine(context.Background(), rt, store, "tenant", "auth-fix", true); err != nil {
+	if err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", "auth-fix", true); err != nil {
 		t.Fatalf("removeLocalMachine() error = %v", err)
 	}
 
@@ -159,11 +161,66 @@ func TestRemoveLocalMachineRejectsEphemeralNames(t *testing.T) {
 	store := state.NewFakeStore()
 	rt := runtime.NewFakeRuntime()
 
-	err := removeLocalMachine(context.Background(), rt, store, "tenant", ".tmp-auth-fix-123", false)
+	err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", ".tmp-auth-fix-123", false)
 	if err == nil {
 		t.Fatal("expected removeLocalMachine() to reject ephemeral names")
 	}
 	if !strings.Contains(err.Error(), ".tmp-") {
 		t.Fatalf("error = %q, want .tmp- hint", err)
+	}
+}
+
+func TestRemoveLocalMachineLogsAuditEvent(t *testing.T) {
+	store := state.NewFakeStore()
+	rt := runtime.NewFakeRuntime()
+	root := t.TempDir()
+	workspacePath := filepath.Join(root, "auth-fix")
+	if err := os.MkdirAll(workspacePath, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.CreateMachine(&state.Machine{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		RepoURL:       "https://github.com/podspawn/example.git",
+		Branch:        "main",
+		Mode:          "grace-period",
+		WorkspacePath: workspacePath,
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	auditPath := filepath.Join(root, "audit.jsonl")
+	logger, err := audit.Open(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removeLocalMachine(context.Background(), rt, store, logger, "tenant", "auth-fix", false); err != nil {
+		t.Fatalf("removeLocalMachine() error = %v", err)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["event"] != "machine.delete" {
+		t.Fatalf("event = %q, want machine.delete", entry["event"])
+	}
+	if entry["project"] != "backend" {
+		t.Fatalf("project = %q, want backend", entry["project"])
+	}
+	if entry["branch"] != "main" {
+		t.Fatalf("branch = %q, want main", entry["branch"])
 	}
 }

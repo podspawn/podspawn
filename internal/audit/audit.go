@@ -8,12 +8,14 @@ import (
 )
 
 const (
-	EventConnect    = "session.connect"
-	EventDisconnect = "session.disconnect"
-	EventCreate     = "container.create"
-	EventDestroy    = "container.destroy"
-	EventCommand    = "session.command"
-	EventCleanup    = "cleanup.run"
+	EventConnect       = "session.connect"
+	EventDisconnect    = "session.disconnect"
+	EventCreate        = "container.create"
+	EventDestroy       = "container.destroy"
+	EventCommand       = "session.command"
+	EventCleanup       = "cleanup.run"
+	EventMachineCreate = "machine.create"
+	EventMachineDelete = "machine.delete"
 )
 
 // Logger writes structured audit events to a JSON-lines file.
@@ -118,5 +120,24 @@ func (l *Logger) Command(user, project, command string) {
 	l.Log(EventCommand, user,
 		slog.String("project", project),
 		slog.String("command", command),
+	)
+}
+
+func (l *Logger) MachineCreate(user, name, project, branch, workspace string) {
+	l.Log(EventMachineCreate, user,
+		slog.String("name", name),
+		slog.String("project", project),
+		slog.String("branch", branch),
+		slog.String("workspace", workspace),
+	)
+}
+
+func (l *Logger) MachineDelete(user, name, project, branch, workspace, reason string) {
+	l.Log(EventMachineDelete, user,
+		slog.String("name", name),
+		slog.String("project", project),
+		slog.String("branch", branch),
+		slog.String("workspace", workspace),
+		slog.String("reason", reason),
 	)
 }

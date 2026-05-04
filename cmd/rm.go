@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
@@ -34,7 +35,7 @@ var rmCmd = &cobra.Command{
 		}
 		defer ls.Close()
 
-		if err := removeLocalMachine(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Username, args[0], force); err != nil {
+		if err := removeLocalMachine(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Audit, ls.Session.Username, args[0], force); err != nil {
 			return err
 		}
 
@@ -43,7 +44,7 @@ var rmCmd = &cobra.Command{
 	},
 }
 
-func removeLocalMachine(ctx context.Context, rt runtime.Runtime, store machineRemovalStore, user, name string, force bool) error {
+func removeLocalMachine(ctx context.Context, rt runtime.Runtime, store machineRemovalStore, logger *audit.Logger, user, name string, force bool) error {
 	if strings.HasPrefix(name, ".tmp-") {
 		return fmt.Errorf("refusing to remove ephemeral workspace name %q; clean up the .tmp-* directory directly", name)
 	}
@@ -87,6 +88,7 @@ func removeLocalMachine(ctx context.Context, rt runtime.Runtime, store machineRe
 	if err := store.DeleteMachine(user, name); err != nil {
 		return fmt.Errorf("deleting machine row: %w", err)
 	}
+	logger.MachineDelete(user, machine.Name, machine.Project, machine.Branch, machine.WorkspacePath, "rm")
 	return nil
 }
 
