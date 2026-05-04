@@ -9,6 +9,8 @@ Target commands:
 ```bash
 podspawn create auth-fix --project backend --branch feat/auth-retry
 podspawn run auth-fix --project backend --branch feat/auth-retry
+podspawn switch-branch auth-fix main
+podspawn list --machines
 ```
 
 This is a local-mode feature first. Server-mode branch selection can reuse the same model later, but it should not shape the first implementation.
@@ -42,7 +44,7 @@ Without that, branch-based environments are a half-built promise.
 ## Non-goals
 
 - No new remote/server UX in the first version.
-- No automatic branch switching on an existing machine.
+- No automatic branch switching on an existing machine. Branch changes are manual through `podspawn switch-branch`.
 - No worktree-based sharing between machines.
 - No snapshotting or warm-pool optimization.
 
@@ -89,6 +91,12 @@ On reattach with `shell`:
 - Do not re-run `on_create` once the machine is marked initialized.
 - Run `on_start`.
 
+For manual branch changes with `switch-branch`:
+- Refuse to touch a running machine.
+- Refuse to touch a dirty workspace.
+- Fetch and check out the requested branch in the existing workspace.
+- Mark the machine uninitialized so the next `create` or `shell` reruns `on_create`.
+
 For ephemeral `run --project`:
 - Clone into a temporary workspace under `~/.podspawn/workspaces/.tmp-<name>-<unix-nano>/`.
 - Remove that workspace on normal teardown.
@@ -115,7 +123,9 @@ Machine state should record enough information to explain and reproduce the work
 - project name
 - repo URL
 - effective branch
+- effective mode
 - workspace path inside container
+- workspace path on the host
 - created timestamp
 
 If branch is not persisted, the UX becomes opaque and debugging gets harder.
@@ -153,10 +163,10 @@ Why choose it:
 Recommended host layout:
 
 ```text
-/var/lib/podspawn/workspaces/<user>/<machine>/
+~/.podspawn/workspaces/<machine>/
 ```
 
-For pure local mode on a non-root install, a user-owned equivalent under `~/.podspawn/workspaces/<machine>/` may be needed. The implementation should use one location derived from active mode, not mix both silently.
+Local mode should keep workspaces under the podspawn home directory even if `state.db_path` moves elsewhere. Tying workspace roots to the database path makes the on-disk model too hard to predict.
 
 ## Hook ordering
 
@@ -212,14 +222,24 @@ Minimum coverage:
 - Reattach does not re-clone or rerun `on_create`.
 - Clone failure cleans up partial machine state.
 - `on_create` runs after clone and can see repo files.
+- `switch-branch` refuses running and dirty workspaces, updates the stored branch, and forces reinitialization on next start.
+- `list --machines` hides ad hoc sessions and shows registered machines only.
 
 Integration coverage should use real Docker for at least one end-to-end path.
 
 ## Open questions
 
-- Should local branch workspaces live under a root-owned path, a user-owned path, or be mode-dependent?
-- Should `stop` remove the workspace by default, or only the container?
-- Do we want a future `podspawn reset <machine>` to recreate from the original branch cleanly?
+- Should `stop --clean` remove the workspace as well as the container, or should plain `stop` remain workspace-preserving only?
+- Do we want a future `podspawn reset <machine>` to recreate from the original branch cleanly after a broken setup or a dirty checkout?
+
+## Auditability
+
+Machine lifecycle should be visible in the audit log, not just container lifecycle:
+
+- `machine.create` when a project-backed machine row is registered
+- `machine.delete` when a machine row and workspace are removed
+
+These events should include the machine name, project, branch, workspace path, and delete reason.
 
 ## Recommendation
 
