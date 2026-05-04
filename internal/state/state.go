@@ -64,6 +64,7 @@ type SessionStore interface {
 type MachineStore interface {
 	CreateMachine(machine *Machine) error
 	GetMachine(user, name string) (*Machine, error)
+	UpdateMachineBranch(user, name, branch string) error
 	UpdateMachineInitialized(user, name string, initialized bool) error
 	DeleteMachine(user, name string) error
 	ListMachinesByUser(user string) ([]*Machine, error)
@@ -319,6 +320,11 @@ func (s *Store) UpdateMachineInitialized(user, name string, initialized bool) er
 		value = 1
 	}
 	_, err := s.db.Exec(`UPDATE machines SET initialized = ? WHERE user = ? AND name = ?`, value, user, name)
+	return err
+}
+
+func (s *Store) UpdateMachineBranch(user, name, branch string) error {
+	_, err := s.db.Exec(`UPDATE machines SET branch = ? WHERE user = ? AND name = ?`, branch, user, name)
 	return err
 }
 

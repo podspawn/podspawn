@@ -347,6 +347,27 @@ func TestUpdateMachineInitialized(t *testing.T) {
 	}
 }
 
+func TestUpdateMachineBranch(t *testing.T) {
+	store := openTestDB(t)
+	machine := testMachineData("deploy", "auth-fix")
+	machine.Initialized = true
+	if err := store.CreateMachine(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.UpdateMachineBranch("deploy", "auth-fix", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetMachine("deploy", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Branch != "main" {
+		t.Fatalf("branch = %q, want main", got.Branch)
+	}
+}
+
 func TestListMachinesByUser(t *testing.T) {
 	store := openTestDB(t)
 	for _, name := range []string{"beta", "alpha"} {
@@ -1155,6 +1176,14 @@ func TestFakeStoreMachineLifecycle(t *testing.T) {
 	got, _ = fs.GetMachine("deploy", "auth-fix")
 	if !got.Initialized {
 		t.Fatal("machine should be initialized")
+	}
+
+	if err := fs.UpdateMachineBranch("deploy", "auth-fix", "main"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = fs.GetMachine("deploy", "auth-fix")
+	if got.Branch != "main" {
+		t.Fatalf("branch = %q, want main", got.Branch)
 	}
 
 	if err := fs.DeleteMachine("deploy", "auth-fix"); err != nil {

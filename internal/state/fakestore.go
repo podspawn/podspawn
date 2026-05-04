@@ -220,6 +220,17 @@ func (f *FakeStore) UpdateMachineInitialized(user, name string, initialized bool
 	return nil
 }
 
+func (f *FakeStore) UpdateMachineBranch(user, name, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	machine, ok := f.Machines[sessionKey(user, name)]
+	if !ok {
+		return fmt.Errorf("no machine for %s/%s", user, name)
+	}
+	machine.Branch = branch
+	return nil
+}
+
 func (f *FakeStore) DeleteMachine(user, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

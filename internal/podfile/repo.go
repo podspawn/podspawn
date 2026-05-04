@@ -74,3 +74,20 @@ func CheckoutBranch(ctx context.Context, dir, branch string) error {
 
 	return nil
 }
+
+func SwitchBranch(ctx context.Context, dir, branch string) error {
+	if branch == "" {
+		return nil
+	}
+
+	status := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain")
+	statusOut, err := status.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git status in %s: %s: %w", dir, string(statusOut), err)
+	}
+	if strings.TrimSpace(string(statusOut)) != "" {
+		return fmt.Errorf("workspace %s has uncommitted changes", dir)
+	}
+
+	return CheckoutBranch(ctx, dir, branch)
+}
