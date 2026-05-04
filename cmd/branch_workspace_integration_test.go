@@ -104,7 +104,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal("expected machine after create")
 	}
 
-	rows, err := collectLocalMachineRows(store, "tenant")
+	rows, err := collectLocalMachineRows(store, "tenant", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err = collectLocalMachineRows(store, "tenant")
+	rows, err = collectLocalMachineRows(store, "tenant", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err = collectLocalMachineRows(store, "tenant")
+	rows, err = collectLocalMachineRows(store, "tenant", false)
 	if err != nil {
 		t.Fatal(err)
 	}
