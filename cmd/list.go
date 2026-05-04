@@ -25,7 +25,8 @@ var listCmd = &cobra.Command{
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		if isLocalMode {
-			rows, err := collectLocalMachineRows(store, os.Getenv("USER"))
+			machinesOnly, _ := cmd.Flags().GetBool("machines")
+			rows, err := collectLocalMachineRows(store, os.Getenv("USER"), machinesOnly)
 			if err != nil {
 				return fmt.Errorf("listing machines: %w", err)
 			}
@@ -84,7 +85,7 @@ type localMachineRow struct {
 	Age    string
 }
 
-func collectLocalMachineRows(store localMachineStore, user string) ([]localMachineRow, error) {
+func collectLocalMachineRows(store localMachineStore, user string, machinesOnly bool) ([]localMachineRow, error) {
 	sessions, err := store.ListSessionsByUser(user)
 	if err != nil {
 		return nil, err
@@ -94,6 +95,23 @@ func collectLocalMachineRows(store localMachineStore, user string) ([]localMachi
 		return nil, err
 	}
 
+	return collectMachineRows(machines, sessions, machinesOnly), nil
+}
+
+func collectRegisteredMachineRows(store localMachineStore, user string) ([]localMachineRow, error) {
+	sessions, err := store.ListSessionsByUser(user)
+	if err != nil {
+		return nil, err
+	}
+	machines, err := store.ListMachinesByUser(user)
+	if err != nil {
+		return nil, err
+	}
+
+	return collectMachineRows(machines, sessions, true), nil
+}
+
+func collectMachineRows(machines []*state.Machine, sessions []*state.Session, machinesOnly bool) []localMachineRow {
 	rowsByName := make(map[string]localMachineRow, len(sessions)+len(machines))
 	for _, machine := range machines {
 		status := "stopped"
@@ -111,6 +129,11 @@ func collectLocalMachineRows(store localMachineStore, user string) ([]localMachi
 		name := sess.Project
 		if name == "" {
 			name = "(default)"
+		}
+		if machinesOnly {
+			if _, ok := rowsByName[name]; !ok {
+				continue
+			}
 		}
 
 		status := sess.Status
@@ -136,9 +159,10 @@ func collectLocalMachineRows(store localMachineStore, user string) ([]localMachi
 	for _, name := range names {
 		rows = append(rows, rowsByName[name])
 	}
-	return rows, nil
+	return rows
 }
 
 func init() {
+	listCmd.Flags().Bool("machines", false, "show registered machines only in local mode")
 	rootCmd.AddCommand(listCmd)
 }
