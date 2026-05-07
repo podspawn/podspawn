@@ -69,18 +69,18 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 	})
 
 	createSession := &spawn.Session{
-		Username:     "tenant",
-		ProjectName:  machineName,
-		Runtime:      rt,
-		Image:        "ubuntu:24.04",
-		Shell:        "/bin/bash",
-		Store:        store,
-		MachineStore: store,
-		LockDir:      filepath.Join(root, "locks"),
-		GracePeriod:  60 * time.Second,
-		MaxLifetime:  8 * time.Hour,
-		Mode:         "grace-period",
-		HookFatal:    true,
+		Username:       "tenant",
+		ProjectName:    machineName,
+		Runtime:        rt,
+		Image:          "ubuntu:24.04",
+		Shell:          "/bin/bash",
+		Store:          store,
+		WorkspaceStore: store,
+		LockDir:        filepath.Join(root, "locks"),
+		GracePeriod:    60 * time.Second,
+		MaxLifetime:    8 * time.Hour,
+		Mode:           "grace-period",
+		HookFatal:      true,
 	}
 	ls := &localSession{Session: createSession, Store: store}
 
@@ -96,7 +96,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	machine, err := store.GetMachine("tenant", machineName)
+	machine, err := store.GetWorkspace("tenant", machineName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,20 +144,20 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 	}
 
 	shellSession := &spawn.Session{
-		Username:     "tenant",
-		Runtime:      rt,
-		Image:        "ubuntu:24.04",
-		Shell:        "/bin/bash",
-		Store:        store,
-		MachineStore: store,
-		LockDir:      filepath.Join(root, "locks"),
-		GracePeriod:  60 * time.Second,
-		MaxLifetime:  8 * time.Hour,
-		Mode:         "grace-period",
-		HookFatal:    true,
+		Username:       "tenant",
+		Runtime:        rt,
+		Image:          "ubuntu:24.04",
+		Shell:          "/bin/bash",
+		Store:          store,
+		WorkspaceStore: store,
+		LockDir:        filepath.Join(root, "locks"),
+		GracePeriod:    60 * time.Second,
+		MaxLifetime:    8 * time.Hour,
+		Mode:           "grace-period",
+		HookFatal:      true,
 	}
 	shellLS := &localSession{Session: shellSession, Store: store}
-	configureSessionFromMachine(shellLS, machine, false)
+	configureSessionFromWorkspace(shellLS, machine, false)
 
 	if _, err := shellSession.Ensure(ctx); err != nil {
 		t.Fatal(err)

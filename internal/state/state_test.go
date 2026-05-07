@@ -40,8 +40,8 @@ func testSessionData(user string) *Session {
 	}
 }
 
-func testMachineData(user, name string) *Machine {
-	return &Machine{
+func testMachineData(user, name string) *Workspace {
+	return &Workspace{
 		User:            user,
 		Name:            name,
 		Project:         "backend",
@@ -301,15 +301,15 @@ func TestReopenPreservesData(t *testing.T) {
 	}
 }
 
-func TestCreateAndGetMachine(t *testing.T) {
+func TestCreateAndGetWorkspace(t *testing.T) {
 	store := openTestDB(t)
 	machine := testMachineData("deploy", "auth-fix")
 
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.GetMachine("deploy", "auth-fix")
+	got, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,18 +327,18 @@ func TestCreateAndGetMachine(t *testing.T) {
 	}
 }
 
-func TestUpdateMachineInitialized(t *testing.T) {
+func TestUpdateWorkspaceInitialized(t *testing.T) {
 	store := openTestDB(t)
 	machine := testMachineData("deploy", "auth-fix")
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := store.UpdateMachineInitialized("deploy", "auth-fix", true); err != nil {
+	if err := store.UpdateWorkspaceInitialized("deploy", "auth-fix", true); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.GetMachine("deploy", "auth-fix")
+	got, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,19 +347,19 @@ func TestUpdateMachineInitialized(t *testing.T) {
 	}
 }
 
-func TestUpdateMachineBranch(t *testing.T) {
+func TestUpdateWorkspaceBranch(t *testing.T) {
 	store := openTestDB(t)
 	machine := testMachineData("deploy", "auth-fix")
 	machine.Initialized = true
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := store.UpdateMachineBranch("deploy", "auth-fix", "main"); err != nil {
+	if err := store.UpdateWorkspaceBranch("deploy", "auth-fix", "main"); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.GetMachine("deploy", "auth-fix")
+	got, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,20 +368,20 @@ func TestUpdateMachineBranch(t *testing.T) {
 	}
 }
 
-func TestListMachinesByUser(t *testing.T) {
+func TestListWorkspacesByUser(t *testing.T) {
 	store := openTestDB(t)
 	for _, name := range []string{"beta", "alpha"} {
 		machine := testMachineData("deploy", name)
-		if err := store.CreateMachine(machine); err != nil {
+		if err := store.CreateWorkspace(machine); err != nil {
 			t.Fatal(err)
 		}
 	}
 	other := testMachineData("ops", "ops-box")
-	if err := store.CreateMachine(other); err != nil {
+	if err := store.CreateWorkspace(other); err != nil {
 		t.Fatal(err)
 	}
 
-	machines, err := store.ListMachinesByUser("deploy")
+	machines, err := store.ListWorkspacesByUser("deploy")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,11 +398,11 @@ func TestMachineModeRoundTrip(t *testing.T) {
 	machine := testMachineData("deploy", "auth-fix")
 	machine.Mode = "destroy-on-disconnect"
 
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := store.GetMachine("deploy", "auth-fix")
+	got, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,10 +903,10 @@ func TestMigrateFromVersion3PreservesSessionsAndAddsMachines(t *testing.T) {
 	}
 
 	machine := testMachineData("deploy", "auth-fix")
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.GetMachine("deploy", "auth-fix")
+	got, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -988,7 +988,7 @@ func TestMigrateFromVersion4BackfillsMachineModeFromSession(t *testing.T) {
 	}
 	defer func() { _ = store.Close() }()
 
-	got, err := store.GetMachine("deploy", "auth-fix")
+	got, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1155,11 +1155,11 @@ func TestFakeStoreMachineLifecycle(t *testing.T) {
 	fs := NewFakeStore()
 	machine := testMachineData("deploy", "auth-fix")
 
-	if err := fs.CreateMachine(machine); err != nil {
+	if err := fs.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := fs.GetMachine("deploy", "auth-fix")
+	got, err := fs.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1170,26 +1170,26 @@ func TestFakeStoreMachineLifecycle(t *testing.T) {
 		t.Fatalf("mode = %q, want persistent", got.Mode)
 	}
 
-	if err := fs.UpdateMachineInitialized("deploy", "auth-fix", true); err != nil {
+	if err := fs.UpdateWorkspaceInitialized("deploy", "auth-fix", true); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = fs.GetMachine("deploy", "auth-fix")
+	got, _ = fs.GetWorkspace("deploy", "auth-fix")
 	if !got.Initialized {
 		t.Fatal("machine should be initialized")
 	}
 
-	if err := fs.UpdateMachineBranch("deploy", "auth-fix", "main"); err != nil {
+	if err := fs.UpdateWorkspaceBranch("deploy", "auth-fix", "main"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = fs.GetMachine("deploy", "auth-fix")
+	got, _ = fs.GetWorkspace("deploy", "auth-fix")
 	if got.Branch != "main" {
 		t.Fatalf("branch = %q, want main", got.Branch)
 	}
 
-	if err := fs.DeleteMachine("deploy", "auth-fix"); err != nil {
+	if err := fs.DeleteWorkspace("deploy", "auth-fix"); err != nil {
 		t.Fatal(err)
 	}
-	got, err = fs.GetMachine("deploy", "auth-fix")
+	got, err = fs.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}

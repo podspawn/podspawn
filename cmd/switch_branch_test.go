@@ -19,7 +19,7 @@ func TestSwitchLocalMachineBranchUpdatesWorkspaceAndState(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
 	remotePath, workspacePath := createProjectRepo(t)
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:            "tenant",
 		Name:            "auth-fix",
 		Project:         "backend",
@@ -34,11 +34,11 @@ func TestSwitchLocalMachineBranchUpdatesWorkspaceAndState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := switchLocalMachineBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry"); err != nil {
-		t.Fatalf("switchLocalMachineBranch() error = %v", err)
+	if err := switchLocalWorkspaceBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry"); err != nil {
+		t.Fatalf("switchLocalWorkspaceBranch() error = %v", err)
 	}
 
-	machine, err := store.GetMachine("tenant", "auth-fix")
+	machine, err := store.GetWorkspace("tenant", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestSwitchLocalMachineBranchRefusesRunningMachine(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
 	remotePath, workspacePath := createProjectRepo(t)
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:            "tenant",
 		Name:            "auth-fix",
 		Project:         "backend",
@@ -93,7 +93,7 @@ func TestSwitchLocalMachineBranchRefusesRunningMachine(t *testing.T) {
 	}
 	rt.Containers["podspawn-tenant-auth-fix"] = true
 
-	err := switchLocalMachineBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry")
+	err := switchLocalWorkspaceBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry")
 	if err == nil {
 		t.Fatal("expected running machine branch switch to fail")
 	}
@@ -109,7 +109,7 @@ func TestSwitchLocalMachineBranchRefusesDirtyWorkspace(t *testing.T) {
 	rt := runtime.NewFakeRuntime()
 	remotePath, workspacePath := createProjectRepo(t)
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:            "tenant",
 		Name:            "auth-fix",
 		Project:         "backend",
@@ -128,7 +128,7 @@ func TestSwitchLocalMachineBranchRefusesDirtyWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := switchLocalMachineBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry")
+	err := switchLocalWorkspaceBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry")
 	if err == nil {
 		t.Fatal("expected dirty workspace branch switch to fail")
 	}

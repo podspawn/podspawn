@@ -14,14 +14,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type machineRemovalStore interface {
+type workspaceRemovalStore interface {
 	state.SessionStore
-	state.MachineStore
+	state.WorkspaceStore
 }
 
 var rmCmd = &cobra.Command{
 	Use:   "rm <name>",
-	Short: "Remove a local machine workspace and registry entry",
+	Short: "Remove a local workspace and registry entry",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !isLocalMode {
@@ -35,26 +35,26 @@ var rmCmd = &cobra.Command{
 		}
 		defer ls.Close()
 
-		if err := removeLocalMachine(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Audit, ls.Session.Username, args[0], force); err != nil {
+		if err := removeLocalWorkspace(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Audit, ls.Session.Username, args[0], force); err != nil {
 			return err
 		}
 
-		ui.Success("Removed machine %s", args[0])
+		ui.Success("Removed workspace %s", args[0])
 		return nil
 	},
 }
 
-func removeLocalMachine(ctx context.Context, rt runtime.Runtime, store machineRemovalStore, logger *audit.Logger, user, name string, force bool) error {
+func removeLocalWorkspace(ctx context.Context, rt runtime.Runtime, store workspaceRemovalStore, logger *audit.Logger, user, name string, force bool) error {
 	if strings.HasPrefix(name, ".tmp-") {
 		return fmt.Errorf("refusing to remove ephemeral workspace name %q; clean up the .tmp-* directory directly", name)
 	}
 
-	machine, err := store.GetMachine(user, name)
+	workspace, err := store.GetWorkspace(user, name)
 	if err != nil {
-		return fmt.Errorf("checking machine registry: %w", err)
+		return fmt.Errorf("checking workspace registry: %w", err)
 	}
-	if machine == nil {
-		return fmt.Errorf("no machine %q for user %q", name, user)
+	if workspace == nil {
+		return fmt.Errorf("no workspace %q for user %q", name, user)
 	}
 
 	sess, err := store.GetSession(user, name)
@@ -74,21 +74,21 @@ func removeLocalMachine(ctx context.Context, rt runtime.Runtime, store machineRe
 		}
 	}
 	if sess != nil && !force {
-		return fmt.Errorf("machine %q is still running; use --force to remove it", name)
+		return fmt.Errorf("workspace %q is still running; use --force to remove it", name)
 	}
 	if sess != nil {
 		if err := cleanup.DestroySession(ctx, rt, store, sess); err != nil {
-			return fmt.Errorf("destroying running machine: %w", err)
+			return fmt.Errorf("destroying running workspace: %w", err)
 		}
 	}
 
-	if err := os.RemoveAll(machine.WorkspacePath); err != nil {
-		return fmt.Errorf("removing workspace %s: %w", machine.WorkspacePath, err)
+	if err := os.RemoveAll(workspace.WorkspacePath); err != nil {
+		return fmt.Errorf("removing workspace %s: %w", workspace.WorkspacePath, err)
 	}
-	if err := store.DeleteMachine(user, name); err != nil {
-		return fmt.Errorf("deleting machine row: %w", err)
+	if err := store.DeleteWorkspace(user, name); err != nil {
+		return fmt.Errorf("deleting workspace row: %w", err)
 	}
-	logger.MachineDelete(user, machine.Name, machine.Project, machine.Branch, machine.WorkspacePath, "rm")
+	logger.MachineDelete(user, workspace.Name, workspace.Project, workspace.Branch, workspace.WorkspacePath, "rm")
 	return nil
 }
 

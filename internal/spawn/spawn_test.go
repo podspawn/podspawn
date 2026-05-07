@@ -1779,7 +1779,7 @@ func TestRunSkipsOnCreateForInitializedMachine(t *testing.T) {
 	}
 	fake.Images[podfile.ComputeTag("auth-fix", podfileContent)] = true
 
-	machine := &state.Machine{
+	machine := &state.Workspace{
 		User:            "deploy",
 		Name:            "auth-fix",
 		Project:         "backend",
@@ -1790,26 +1790,26 @@ func TestRunSkipsOnCreateForInitializedMachine(t *testing.T) {
 		CreatedAt:       time.Now().UTC(),
 		Initialized:     true,
 	}
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
 	sess := &Session{
-		Username:      "deploy",
-		ProjectName:   "auth-fix",
-		Project:       &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
-		Runtime:       fake,
-		Image:         "ubuntu:24.04",
-		Shell:         "/bin/bash",
-		Store:         store,
-		MachineStore:  store,
-		Machine:       machine,
-		LockDir:       t.TempDir(),
-		GracePeriod:   60 * time.Second,
-		MaxLifetime:   8 * time.Hour,
-		Mode:          "grace-period",
-		WorkingDir:    machine.WorkspaceTarget,
-		WorkspacePath: machine.WorkspacePath,
+		Username:       "deploy",
+		ProjectName:    "auth-fix",
+		Project:        &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
+		Runtime:        fake,
+		Image:          "ubuntu:24.04",
+		Shell:          "/bin/bash",
+		Store:          store,
+		WorkspaceStore: store,
+		Workspace:      machine,
+		LockDir:        t.TempDir(),
+		GracePeriod:    60 * time.Second,
+		MaxLifetime:    8 * time.Hour,
+		Mode:           "grace-period",
+		WorkingDir:     machine.WorkspaceTarget,
+		WorkspacePath:  machine.WorkspacePath,
 		WorkspaceMounts: []runtime.Mount{{
 			Source: machine.WorkspacePath,
 			Target: machine.WorkspaceTarget,
@@ -1857,7 +1857,7 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 	}
 	fake.Images[podfile.ComputeTag("auth-fix", podfileContent)] = true
 
-	machine := &state.Machine{
+	machine := &state.Workspace{
 		User:            "deploy",
 		Name:            "auth-fix",
 		Project:         "backend",
@@ -1868,27 +1868,27 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 		CreatedAt:       time.Now().UTC(),
 		Initialized:     false,
 	}
-	if err := store.CreateMachine(machine); err != nil {
+	if err := store.CreateWorkspace(machine); err != nil {
 		t.Fatal(err)
 	}
 
 	sess := &Session{
-		Username:      "deploy",
-		ProjectName:   "auth-fix",
-		Project:       &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
-		HookFatal:     true,
-		Runtime:       fake,
-		Image:         "ubuntu:24.04",
-		Shell:         "/bin/bash",
-		Store:         store,
-		MachineStore:  store,
-		Machine:       machine,
-		LockDir:       t.TempDir(),
-		GracePeriod:   60 * time.Second,
-		MaxLifetime:   8 * time.Hour,
-		Mode:          "grace-period",
-		WorkingDir:    machine.WorkspaceTarget,
-		WorkspacePath: machine.WorkspacePath,
+		Username:       "deploy",
+		ProjectName:    "auth-fix",
+		Project:        &config.ProjectConfig{Repo: machine.RepoURL, LocalPath: projectDir},
+		HookFatal:      true,
+		Runtime:        fake,
+		Image:          "ubuntu:24.04",
+		Shell:          "/bin/bash",
+		Store:          store,
+		WorkspaceStore: store,
+		Workspace:      machine,
+		LockDir:        t.TempDir(),
+		GracePeriod:    60 * time.Second,
+		MaxLifetime:    8 * time.Hour,
+		Mode:           "grace-period",
+		WorkingDir:     machine.WorkspaceTarget,
+		WorkspacePath:  machine.WorkspacePath,
 		WorkspaceMounts: []runtime.Mount{{
 			Source: machine.WorkspacePath,
 			Target: machine.WorkspaceTarget,
@@ -1904,7 +1904,7 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 		t.Fatalf("expected on_create hook error, got %v", err)
 	}
 
-	gotMachine, err := store.GetMachine("deploy", "auth-fix")
+	gotMachine, err := store.GetWorkspace("deploy", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}

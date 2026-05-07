@@ -47,9 +47,9 @@ func TestSetupNamedMachineCreatesMachineRecord(t *testing.T) {
 
 	ls := &localSession{
 		Session: &spawn.Session{
-			Username:     "tenant",
-			Store:        store,
-			MachineStore: store,
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
 		},
 		Store: store,
 	}
@@ -62,7 +62,7 @@ func TestSetupNamedMachineCreatesMachineRecord(t *testing.T) {
 		t.Fatal("expected a new machine to be created")
 	}
 
-	machine, err := store.GetMachine("tenant", "auth-fix")
+	machine, err := store.GetWorkspace("tenant", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +117,9 @@ func TestSetupNamedMachineRejectsBranchMismatch(t *testing.T) {
 
 	ls := &localSession{
 		Session: &spawn.Session{
-			Username:     "tenant",
-			Store:        store,
-			MachineStore: store,
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
 		},
 		Store: store,
 	}
@@ -165,9 +165,9 @@ func TestSetupNamedMachineUsesPodfileBranchWithoutRegisteredCheckout(t *testing.
 
 	ls := &localSession{
 		Session: &spawn.Session{
-			Username:     "tenant",
-			Store:        store,
-			MachineStore: store,
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
 		},
 		Store: store,
 	}
@@ -180,7 +180,7 @@ func TestSetupNamedMachineUsesPodfileBranchWithoutRegisteredCheckout(t *testing.
 		t.Fatal("expected a new machine to be created")
 	}
 
-	machine, err := store.GetMachine("tenant", "auth-fix")
+	machine, err := store.GetWorkspace("tenant", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestConfigureSessionFromMachineUsesStoredMode(t *testing.T) {
 		Store: store,
 	}
 
-	machine := &state.Machine{
+	machine := &state.Workspace{
 		User:            "tenant",
 		Name:            "auth-fix",
 		Project:         "backend",
@@ -243,7 +243,7 @@ func TestConfigureSessionFromMachineUsesStoredMode(t *testing.T) {
 		CreatedAt:       time.Now().UTC(),
 	}
 
-	configureSessionFromMachine(ls, machine, false)
+	configureSessionFromWorkspace(ls, machine, false)
 
 	if ls.Session.Project == nil {
 		t.Fatal("expected project config")
@@ -299,10 +299,10 @@ func TestSetupNamedMachineIgnoresStaleSessionWithoutContainer(t *testing.T) {
 
 	ls := &localSession{
 		Session: &spawn.Session{
-			Username:     "tenant",
-			Store:        store,
-			MachineStore: store,
-			Runtime:      runtime.NewFakeRuntime(),
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
+			Runtime:        runtime.NewFakeRuntime(),
 		},
 		Store: store,
 	}
@@ -374,10 +374,10 @@ func TestSetupNamedMachineLogsAuditEvent(t *testing.T) {
 
 	ls := &localSession{
 		Session: &spawn.Session{
-			Username:     "tenant",
-			Store:        store,
-			MachineStore: store,
-			Audit:        logger,
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
+			Audit:          logger,
 		},
 		Store: store,
 	}

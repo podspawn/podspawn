@@ -38,7 +38,7 @@ func TestRequireExistingShellTarget(t *testing.T) {
 		{
 			name: "machine exists",
 			setup: func(store *state.FakeStore) {
-				if err := store.CreateMachine(&state.Machine{
+				if err := store.CreateWorkspace(&state.Workspace{
 					User:    "tenant",
 					Name:    "backend-main",
 					Project: "backend",
@@ -61,7 +61,7 @@ func TestRequireExistingShellTarget(t *testing.T) {
 		{
 			name:    "missing machine and session",
 			setup:   func(store *state.FakeStore) {},
-			wantErr: `no machine or session named "backend-main" for user "tenant"`,
+			wantErr: `no workspace or session named "backend-main" for user "tenant"`,
 		},
 	}
 

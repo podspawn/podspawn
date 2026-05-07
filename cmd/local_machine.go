@@ -92,27 +92,27 @@ func applyWorkspacePodfileBranch(ctx context.Context, workspacePath, branch, cli
 	return pf, pf.Branch, nil
 }
 
-func configureSessionFromMachine(ls *localSession, machine *state.Machine, removeWorkspaceOnDestroy bool) {
+func configureSessionFromWorkspace(ls *localSession, workspace *state.Workspace, removeWorkspaceOnDestroy bool) {
 	project := &config.ProjectConfig{
-		Repo:      machine.RepoURL,
-		LocalPath: machine.WorkspacePath,
-		Mode:      machine.Mode,
+		Repo:      workspace.RepoURL,
+		LocalPath: workspace.WorkspacePath,
+		Mode:      workspace.Mode,
 	}
 
-	ls.Session.ProjectName = machine.Name
+	ls.Session.ProjectName = workspace.Name
 	ls.Session.Project = project
-	ls.Session.Machine = machine
+	ls.Session.Workspace = workspace
 	ls.Session.RequireProjectImage = false
-	ls.Session.WorkspacePath = machine.WorkspacePath
+	ls.Session.WorkspacePath = workspace.WorkspacePath
 	ls.Session.RemoveWorkspaceOnDestroy = removeWorkspaceOnDestroy
 	ls.Session.WorkspaceMounts = []runtime.Mount{{
-		Source: machine.WorkspacePath,
-		Target: machine.WorkspaceTarget,
+		Source: workspace.WorkspacePath,
+		Target: workspace.WorkspaceTarget,
 	}}
-	ls.Session.WorkingDir = machine.WorkspaceTarget
+	ls.Session.WorkingDir = workspace.WorkspaceTarget
 }
 
-func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch, mode string, userOverrides *config.UserOverrides) (*state.Machine, error) {
+func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch, mode string, userOverrides *config.UserOverrides) (*state.Workspace, error) {
 	project, err := loadRegisteredProject(projectName)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch, m
 		workspaceTarget = "/workspace/" + projectName
 	}
 
-	return &state.Machine{
+	return &state.Workspace{
 		User:            os.Getenv("USER"),
 		Name:            name,
 		Project:         projectName,
@@ -160,7 +160,7 @@ func createMachineWorkspace(ctx context.Context, name, projectName, cliBranch, m
 }
 
 func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName, branch string) (bool, error) {
-	existing, err := ls.Store.GetMachine(ls.Session.Username, name)
+	existing, err := ls.Store.GetWorkspace(ls.Session.Username, name)
 	if err != nil {
 		return false, fmt.Errorf("checking machine registry: %w", err)
 	}
@@ -172,7 +172,7 @@ func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName,
 		if branch != "" && existing.Branch != branch {
 			return false, fmt.Errorf("machine %q already uses branch %q", name, existing.Branch)
 		}
-		configureSessionFromMachine(ls, existing, false)
+		configureSessionFromWorkspace(ls, existing, false)
 		return false, nil
 	}
 
@@ -208,13 +208,13 @@ func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName,
 	}
 	machine.User = ls.Session.Username
 
-	if err := ls.Store.CreateMachine(machine); err != nil {
+	if err := ls.Store.CreateWorkspace(machine); err != nil {
 		_ = os.RemoveAll(machine.WorkspacePath)
 		return false, fmt.Errorf("recording machine: %w", err)
 	}
 	ls.Session.Audit.MachineCreate(machine.User, machine.Name, machine.Project, machine.Branch, machine.WorkspacePath)
 
-	configureSessionFromMachine(ls, machine, false)
+	configureSessionFromWorkspace(ls, machine, false)
 	return true, nil
 }
 
@@ -227,7 +227,7 @@ func setupEphemeralProjectRun(ctx context.Context, ls *localSession, name, proje
 		return fmt.Errorf("machine %q is already running", name)
 	}
 
-	existing, err := ls.Store.GetMachine(ls.Session.Username, name)
+	existing, err := ls.Store.GetWorkspace(ls.Session.Username, name)
 	if err != nil {
 		return fmt.Errorf("checking machine registry: %w", err)
 	}
@@ -284,16 +284,16 @@ func setupEphemeralProjectRun(ctx context.Context, ls *localSession, name, proje
 }
 
 func cleanupNewMachineOnFailure(ls *localSession) {
-	if ls.Session.Machine != nil {
+	if ls.Session.Workspace != nil {
 		ls.Session.Audit.MachineDelete(
 			ls.Session.Username,
-			ls.Session.Machine.Name,
-			ls.Session.Machine.Project,
-			ls.Session.Machine.Branch,
-			ls.Session.Machine.WorkspacePath,
+			ls.Session.Workspace.Name,
+			ls.Session.Workspace.Project,
+			ls.Session.Workspace.Branch,
+			ls.Session.Workspace.WorkspacePath,
 			"create_failed",
 		)
-		_ = ls.Store.DeleteMachine(ls.Session.Username, ls.Session.Machine.Name)
+		_ = ls.Store.DeleteWorkspace(ls.Session.Username, ls.Session.Workspace.Name)
 	}
 	if ls.Session.WorkspacePath != "" {
 		_ = os.RemoveAll(ls.Session.WorkspacePath)

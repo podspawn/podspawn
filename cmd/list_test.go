@@ -11,7 +11,7 @@ func TestCollectLocalMachineRowsIncludesStoppedMachines(t *testing.T) {
 	store := state.NewFakeStore()
 	now := time.Now().UTC()
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "backend-main",
 		Project:       "backend",
@@ -21,7 +21,7 @@ func TestCollectLocalMachineRowsIncludesStoppedMachines(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create machine: %v", err)
 	}
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "backend-develop",
 		Project:       "backend",
@@ -77,7 +77,7 @@ func TestCollectRegisteredMachineRowsSkipsAdHocSessions(t *testing.T) {
 	store := state.NewFakeStore()
 	now := time.Now().UTC()
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "backend-main",
 		Project:       "backend",
@@ -87,7 +87,7 @@ func TestCollectRegisteredMachineRowsSkipsAdHocSessions(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create machine: %v", err)
 	}
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "backend-develop",
 		Project:       "backend",

@@ -9,18 +9,18 @@ import (
 )
 
 type FakeStore struct {
-	mu       sync.Mutex
-	Sessions map[string]*Session // keyed by "user|project"
-	Machines map[string]*Machine // keyed by "user|name"
+	mu         sync.Mutex
+	Sessions   map[string]*Session   // keyed by "user|project"
+	Workspaces map[string]*Workspace // keyed by "user|name"
 }
 
 var _ SessionStore = (*FakeStore)(nil)
-var _ MachineStore = (*FakeStore)(nil)
+var _ WorkspaceStore = (*FakeStore)(nil)
 
 func NewFakeStore() *FakeStore {
 	return &FakeStore{
-		Sessions: make(map[string]*Session),
-		Machines: make(map[string]*Machine),
+		Sessions:   make(map[string]*Session),
+		Workspaces: make(map[string]*Workspace),
 	}
 }
 
@@ -35,6 +35,11 @@ func (f *FakeStore) CreateSession(sess *Session) error {
 	if _, exists := f.Sessions[key]; exists {
 		return fmt.Errorf("session already exists for %s/%s", sess.User, sess.Project)
 	}
+	id, err := newID()
+	if err != nil {
+		return err
+	}
+	sess.ID = id
 	cp := *sess
 	f.Sessions[key] = &cp
 	return nil
@@ -183,68 +188,73 @@ func (f *FakeStore) ListSessionsByUser(user string) ([]*Session, error) {
 
 func (f *FakeStore) Close() error { return nil }
 
-func (f *FakeStore) CreateMachine(machine *Machine) error {
+func (f *FakeStore) CreateWorkspace(workspace *Workspace) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	key := sessionKey(machine.User, machine.Name)
-	if _, exists := f.Machines[key]; exists {
-		return fmt.Errorf("machine already exists for %s/%s", machine.User, machine.Name)
+	key := sessionKey(workspace.User, workspace.Name)
+	if _, exists := f.Workspaces[key]; exists {
+		return fmt.Errorf("workspace already exists for %s/%s", workspace.User, workspace.Name)
 	}
-	cp := *machine
+	id, err := newID()
+	if err != nil {
+		return err
+	}
+	workspace.ID = id
+	cp := *workspace
 	if cp.Mode == "" {
 		cp.Mode = "grace-period"
 	}
-	f.Machines[key] = &cp
+	f.Workspaces[key] = &cp
 	return nil
 }
 
-func (f *FakeStore) GetMachine(user, name string) (*Machine, error) {
+func (f *FakeStore) GetWorkspace(user, name string) (*Workspace, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	machine, ok := f.Machines[sessionKey(user, name)]
+	workspace, ok := f.Workspaces[sessionKey(user, name)]
 	if !ok {
 		return nil, nil
 	}
-	cp := *machine
+	cp := *workspace
 	return &cp, nil
 }
 
-func (f *FakeStore) UpdateMachineInitialized(user, name string, initialized bool) error {
+func (f *FakeStore) UpdateWorkspaceInitialized(user, name string, initialized bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	machine, ok := f.Machines[sessionKey(user, name)]
+	workspace, ok := f.Workspaces[sessionKey(user, name)]
 	if !ok {
-		return fmt.Errorf("no machine for %s/%s", user, name)
+		return fmt.Errorf("no workspace for %s/%s", user, name)
 	}
-	machine.Initialized = initialized
+	workspace.Initialized = initialized
 	return nil
 }
 
-func (f *FakeStore) UpdateMachineBranch(user, name, branch string) error {
+func (f *FakeStore) UpdateWorkspaceBranch(user, name, branch string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	machine, ok := f.Machines[sessionKey(user, name)]
+	workspace, ok := f.Workspaces[sessionKey(user, name)]
 	if !ok {
-		return fmt.Errorf("no machine for %s/%s", user, name)
+		return fmt.Errorf("no workspace for %s/%s", user, name)
 	}
-	machine.Branch = branch
+	workspace.Branch = branch
 	return nil
 }
 
-func (f *FakeStore) DeleteMachine(user, name string) error {
+func (f *FakeStore) DeleteWorkspace(user, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.Machines, sessionKey(user, name))
+	delete(f.Workspaces, sessionKey(user, name))
 	return nil
 }
 
-func (f *FakeStore) ListMachinesByUser(user string) ([]*Machine, error) {
+func (f *FakeStore) ListWorkspacesByUser(user string) ([]*Workspace, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []*Machine
-	for _, machine := range f.Machines {
-		if machine.User == user {
-			cp := *machine
+	var out []*Workspace
+	for _, workspace := range f.Workspaces {
+		if workspace.User == user {
+			cp := *workspace
 			out = append(out, &cp)
 		}
 	}

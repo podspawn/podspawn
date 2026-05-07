@@ -11,7 +11,7 @@ import (
 )
 
 type shellTargetStore interface {
-	GetMachine(user, name string) (*state.Machine, error)
+	GetWorkspace(user, name string) (*state.Workspace, error)
 	GetSession(user, project string) (*state.Session, error)
 }
 
@@ -41,12 +41,12 @@ var shellCmd = &cobra.Command{
 				return err
 			}
 
-			machine, machineErr := ls.Store.GetMachine(ls.Session.Username, name)
-			if machineErr != nil {
-				return machineErr
+			workspace, wsErr := ls.Store.GetWorkspace(ls.Session.Username, name)
+			if wsErr != nil {
+				return wsErr
 			}
-			if machine != nil {
-				configureSessionFromMachine(ls, machine, false)
+			if workspace != nil {
+				configureSessionFromWorkspace(ls, workspace, false)
 			}
 		}
 
@@ -62,11 +62,11 @@ var shellCmd = &cobra.Command{
 }
 
 func requireExistingShellTarget(store shellTargetStore, user, name string) error {
-	machine, err := store.GetMachine(user, name)
+	workspace, err := store.GetWorkspace(user, name)
 	if err != nil {
 		return err
 	}
-	if machine != nil {
+	if workspace != nil {
 		return nil
 	}
 
@@ -78,7 +78,7 @@ func requireExistingShellTarget(store shellTargetStore, user, name string) error
 		return nil
 	}
 
-	return fmt.Errorf("no machine or session named %q for user %q", name, user)
+	return fmt.Errorf("no workspace or session named %q for user %q", name, user)
 }
 
 func parseShellTarget(target string) (user, project string) {

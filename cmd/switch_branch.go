@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type machineBranchStore interface {
+type workspaceBranchStore interface {
 	state.SessionStore
-	state.MachineStore
+	state.WorkspaceStore
 }
 
 var switchBranchCmd = &cobra.Command{
@@ -31,7 +31,7 @@ var switchBranchCmd = &cobra.Command{
 		}
 		defer ls.Close()
 
-		if err := switchLocalMachineBranch(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Username, args[0], args[1]); err != nil {
+		if err := switchLocalWorkspaceBranch(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Username, args[0], args[1]); err != nil {
 			return err
 		}
 
@@ -40,13 +40,13 @@ var switchBranchCmd = &cobra.Command{
 	},
 }
 
-func switchLocalMachineBranch(ctx context.Context, rt runtime.Runtime, store machineBranchStore, user, name, branch string) error {
-	machine, err := store.GetMachine(user, name)
+func switchLocalWorkspaceBranch(ctx context.Context, rt runtime.Runtime, store workspaceBranchStore, user, name, branch string) error {
+	workspace, err := store.GetWorkspace(user, name)
 	if err != nil {
-		return fmt.Errorf("checking machine registry: %w", err)
+		return fmt.Errorf("checking workspace registry: %w", err)
 	}
-	if machine == nil {
-		return fmt.Errorf("no machine %q for user %q", name, user)
+	if workspace == nil {
+		return fmt.Errorf("no workspace %q for user %q", name, user)
 	}
 
 	sess, err := store.GetSession(user, name)
@@ -66,17 +66,17 @@ func switchLocalMachineBranch(ctx context.Context, rt runtime.Runtime, store mac
 		}
 	}
 	if sess != nil {
-		return fmt.Errorf("machine %q is still running; stop it before switching branches", name)
+		return fmt.Errorf("workspace %q is still running; stop it before switching branches", name)
 	}
 
-	if err := podfile.SwitchBranch(ctx, machine.WorkspacePath, branch); err != nil {
+	if err := podfile.SwitchBranch(ctx, workspace.WorkspacePath, branch); err != nil {
 		return fmt.Errorf("switching workspace branch: %w", err)
 	}
-	if err := store.UpdateMachineBranch(user, name, branch); err != nil {
-		return fmt.Errorf("recording machine branch: %w", err)
+	if err := store.UpdateWorkspaceBranch(user, name, branch); err != nil {
+		return fmt.Errorf("recording workspace branch: %w", err)
 	}
-	if err := store.UpdateMachineInitialized(user, name, false); err != nil {
-		return fmt.Errorf("marking machine for reinitialization: %w", err)
+	if err := store.UpdateWorkspaceInitialized(user, name, false); err != nil {
+		return fmt.Errorf("marking workspace for reinitialization: %w", err)
 	}
 
 	return nil

@@ -75,7 +75,7 @@ var listCmd = &cobra.Command{
 
 type localMachineStore interface {
 	ListSessionsByUser(user string) ([]*state.Session, error)
-	ListMachinesByUser(user string) ([]*state.Machine, error)
+	ListWorkspacesByUser(user string) ([]*state.Workspace, error)
 }
 
 type localMachineRow struct {
@@ -90,7 +90,7 @@ func collectLocalMachineRows(store localMachineStore, user string, machinesOnly 
 	if err != nil {
 		return nil, err
 	}
-	machines, err := store.ListMachinesByUser(user)
+	machines, err := store.ListWorkspacesByUser(user)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func collectRegisteredMachineRows(store localMachineStore, user string) ([]local
 	if err != nil {
 		return nil, err
 	}
-	machines, err := store.ListMachinesByUser(user)
+	machines, err := store.ListWorkspacesByUser(user)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func collectRegisteredMachineRows(store localMachineStore, user string) ([]local
 	return collectMachineRows(machines, sessions, true), nil
 }
 
-func collectMachineRows(machines []*state.Machine, sessions []*state.Session, machinesOnly bool) []localMachineRow {
+func collectMachineRows(machines []*state.Workspace, sessions []*state.Session, machinesOnly bool) []localMachineRow {
 	rowsByName := make(map[string]localMachineRow, len(sessions)+len(machines))
 	for _, machine := range machines {
 		status := "stopped"

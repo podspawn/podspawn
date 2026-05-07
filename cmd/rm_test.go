@@ -22,7 +22,7 @@ func TestRemoveLocalMachineDeletesStoppedWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "auth-fix",
 		Project:       "backend",
@@ -35,11 +35,11 @@ func TestRemoveLocalMachineDeletesStoppedWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", "auth-fix", false); err != nil {
-		t.Fatalf("removeLocalMachine() error = %v", err)
+	if err := removeLocalWorkspace(context.Background(), rt, store, nil, "tenant", "auth-fix", false); err != nil {
+		t.Fatalf("removeLocalWorkspace() error = %v", err)
 	}
 
-	got, err := store.GetMachine("tenant", "auth-fix")
+	got, err := store.GetWorkspace("tenant", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestRemoveLocalMachineRefusesRunningMachineWithoutForce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "auth-fix",
 		Project:       "backend",
@@ -88,9 +88,9 @@ func TestRemoveLocalMachineRefusesRunningMachineWithoutForce(t *testing.T) {
 	}
 	rt.Containers["podspawn-tenant-auth-fix"] = true
 
-	err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", "auth-fix", false)
+	err := removeLocalWorkspace(context.Background(), rt, store, nil, "tenant", "auth-fix", false)
 	if err == nil {
-		t.Fatal("expected removeLocalMachine() to fail without --force")
+		t.Fatal("expected removeLocalWorkspace() to fail without --force")
 	}
 	if !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("error = %q, want --force hint", err)
@@ -105,7 +105,7 @@ func TestRemoveLocalMachineForceRemovesRunningMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "auth-fix",
 		Project:       "backend",
@@ -134,11 +134,11 @@ func TestRemoveLocalMachineForceRemovesRunningMachine(t *testing.T) {
 	}
 	rt.Containers["podspawn-tenant-auth-fix"] = true
 
-	if err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", "auth-fix", true); err != nil {
-		t.Fatalf("removeLocalMachine() error = %v", err)
+	if err := removeLocalWorkspace(context.Background(), rt, store, nil, "tenant", "auth-fix", true); err != nil {
+		t.Fatalf("removeLocalWorkspace() error = %v", err)
 	}
 
-	gotMachine, err := store.GetMachine("tenant", "auth-fix")
+	gotMachine, err := store.GetWorkspace("tenant", "auth-fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,9 +161,9 @@ func TestRemoveLocalMachineRejectsEphemeralNames(t *testing.T) {
 	store := state.NewFakeStore()
 	rt := runtime.NewFakeRuntime()
 
-	err := removeLocalMachine(context.Background(), rt, store, nil, "tenant", ".tmp-auth-fix-123", false)
+	err := removeLocalWorkspace(context.Background(), rt, store, nil, "tenant", ".tmp-auth-fix-123", false)
 	if err == nil {
-		t.Fatal("expected removeLocalMachine() to reject ephemeral names")
+		t.Fatal("expected removeLocalWorkspace() to reject ephemeral names")
 	}
 	if !strings.Contains(err.Error(), ".tmp-") {
 		t.Fatalf("error = %q, want .tmp- hint", err)
@@ -179,7 +179,7 @@ func TestRemoveLocalMachineLogsAuditEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.CreateMachine(&state.Machine{
+	if err := store.CreateWorkspace(&state.Workspace{
 		User:          "tenant",
 		Name:          "auth-fix",
 		Project:       "backend",
@@ -198,8 +198,8 @@ func TestRemoveLocalMachineLogsAuditEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := removeLocalMachine(context.Background(), rt, store, logger, "tenant", "auth-fix", false); err != nil {
-		t.Fatalf("removeLocalMachine() error = %v", err)
+	if err := removeLocalWorkspace(context.Background(), rt, store, logger, "tenant", "auth-fix", false); err != nil {
+		t.Fatalf("removeLocalWorkspace() error = %v", err)
 	}
 	if err := logger.Close(); err != nil {
 		t.Fatal(err)

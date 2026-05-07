@@ -3,6 +3,7 @@ package spawn
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -43,8 +44,8 @@ type Session struct {
 	Security                 config.SecurityConfig
 	MaxPerUser               int           // 0 = unlimited
 	Audit                    *audit.Logger // nil = no audit logging
-	MachineStore             state.MachineStore
-	Machine                  *state.Machine
+	WorkspaceStore           state.WorkspaceStore
+	Workspace                *state.Workspace
 	WorkspacePath            string
 	RemoveWorkspaceOnDestroy bool
 	RequireProjectImage      bool
@@ -303,7 +304,12 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	}
 
 	now := time.Now().UTC()
+	var workspaceID sql.NullString
+	if s.Workspace != nil && s.Workspace.ID != "" {
+		workspaceID = sql.NullString{String: s.Workspace.ID, Valid: true}
+	}
 	if err := s.Store.CreateSession(&state.Session{
+		WorkspaceID:   workspaceID,
 		User:          s.Username,
 		Project:       s.ProjectName,
 		ContainerID:   id,
@@ -597,7 +603,7 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 		return nil
 	}
 
-	shouldInitialize := isNew && (s.Machine == nil || !s.Machine.Initialized)
+	shouldInitialize := isNew && (s.Workspace == nil || !s.Workspace.Initialized)
 	if shouldInitialize {
 		if s.pf.Dotfiles != nil {
 			if err := podfile.CloneDotfiles(ctx, s.Runtime, containerName, s.Username, s.pf.Dotfiles); err != nil {
@@ -614,11 +620,11 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 				return &HookError{Hook: "on_create", Err: err}
 			}
 			slog.Warn("on_create hook failed", "user", s.Username, "project", s.ProjectName, "error", err)
-		} else if s.Machine != nil && s.MachineStore != nil {
-			if err := s.MachineStore.UpdateMachineInitialized(s.Username, s.Machine.Name, true); err != nil {
-				return fmt.Errorf("marking machine initialized: %w", err)
+		} else if s.Workspace != nil && s.WorkspaceStore != nil {
+			if err := s.WorkspaceStore.UpdateWorkspaceInitialized(s.Username, s.Workspace.Name, true); err != nil {
+				return fmt.Errorf("marking workspace initialized: %w", err)
 			}
-			s.Machine.Initialized = true
+			s.Workspace.Initialized = true
 		}
 	}
 
