@@ -402,6 +402,74 @@ func TestSetupNamedMachineLogsAuditEvent(t *testing.T) {
 	}
 }
 
+func TestSetupNamedMachineClearsPreservedOnRetry(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	root := t.TempDir()
+	oldCfg := cfg
+	cfg = config.LocalDefaults()
+	cfg.State.DBPath = filepath.Join(root, "state.db")
+	cfg.ProjectsFile = filepath.Join(root, "projects.yaml")
+	t.Cleanup(func() { cfg = oldCfg })
+
+	store, err := state.Open(cfg.State.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	machine := &state.Workspace{
+		User:            "tenant",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		Branch:          "feat/auth-retry",
+		Mode:            "grace-period",
+		WorkspacePath:   filepath.Join(root, "workspaces", "auth-fix"),
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		State:           state.WorkspaceStatePreserved,
+	}
+	if err := store.CreateWorkspace(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	ls := &localSession{
+		Session: &spawn.Session{
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
+			Mode:           "grace-period",
+		},
+		Store: store,
+	}
+
+	created, err := setupNamedMachine(context.Background(), ls, "auth-fix", "backend", "")
+	if err != nil {
+		t.Fatalf("setupNamedMachine on preserved workspace: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false when reusing existing workspace")
+	}
+
+	if ls.Session.Workspace == nil {
+		t.Fatal("expected workspace to be wired into the session")
+	}
+	if ls.Session.Workspace.State != state.WorkspaceStateActive {
+		t.Fatalf("in-memory workspace state = %q, want %q",
+			ls.Session.Workspace.State, state.WorkspaceStateActive)
+	}
+
+	got, err := store.GetWorkspace("tenant", "auth-fix")
+	if err != nil || got == nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if got.State != state.WorkspaceStateActive {
+		t.Fatalf("DB workspace state = %q, want %q after retry",
+			got.State, state.WorkspaceStateActive)
+	}
+}
+
 func createProjectRepo(t *testing.T) (remotePath, registeredPath string) {
 	t.Helper()
 

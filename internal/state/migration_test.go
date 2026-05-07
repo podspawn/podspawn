@@ -426,3 +426,222 @@ func TestCreateSessionWithWorkspacePersistsLinkedWorkspaceID(t *testing.T) {
 		t.Fatalf("workspace_id = %q, want %q", got.WorkspaceID.String, w.ID)
 	}
 }
+
+// seedV6DB seeds a v6 schema (post-rename, post-IDs) so the v6→v7 migration
+// has a realistic starting point.
+func seedV6DB(t *testing.T) string {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "v6.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("opening seed db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	stmts := []string{
+		`CREATE TABLE schema_version (version INTEGER NOT NULL)`,
+		`INSERT INTO schema_version (version) VALUES (6)`,
+		`CREATE TABLE sessions (
+			user           TEXT NOT NULL,
+			project        TEXT NOT NULL DEFAULT '',
+			id             TEXT,
+			workspace_id   TEXT,
+			container_id   TEXT NOT NULL,
+			container_name TEXT NOT NULL,
+			image          TEXT NOT NULL,
+			status         TEXT NOT NULL DEFAULT 'running',
+			connections    INTEGER NOT NULL DEFAULT 1,
+			grace_expiry   DATETIME,
+			created_at     DATETIME NOT NULL,
+			last_activity  DATETIME NOT NULL,
+			max_lifetime   DATETIME NOT NULL,
+			network_id     TEXT NOT NULL DEFAULT '',
+			service_ids    TEXT NOT NULL DEFAULT '',
+			mode           TEXT NOT NULL DEFAULT 'grace-period',
+			PRIMARY KEY (user, project)
+		)`,
+		`CREATE UNIQUE INDEX idx_sessions_id ON sessions(id) WHERE id IS NOT NULL`,
+		`CREATE TABLE workspaces (
+			user             TEXT NOT NULL,
+			name             TEXT NOT NULL,
+			id               TEXT,
+			project          TEXT NOT NULL,
+			repo_url         TEXT NOT NULL,
+			branch           TEXT NOT NULL DEFAULT '',
+			mode             TEXT NOT NULL DEFAULT 'grace-period',
+			workspace_path   TEXT NOT NULL,
+			workspace_target TEXT NOT NULL,
+			created_at       DATETIME NOT NULL,
+			initialized      INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (user, name)
+		)`,
+		`CREATE UNIQUE INDEX idx_workspaces_id ON workspaces(id) WHERE id IS NOT NULL`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("seed stmt failed: %v\nstmt: %s", err, s)
+		}
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing seed db: %v", err)
+	}
+	return dbPath
+}
+
+func TestMigrateFromVersion6AddsStateColumnWithActiveDefault(t *testing.T) {
+	dbPath := seedV6DB(t)
+
+	db, _ := sql.Open("sqlite", dbPath)
+	now := time.Now().UTC()
+	wsID := "01900000-0000-7000-8000-000000000001"
+	if _, err := db.Exec(
+		`INSERT INTO workspaces (user, name, id, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"deploy", "alpha", wsID, "backend", "git@example.com:acme/backend.git",
+		"main", "grace-period", "/ws/alpha", "/workspace/backend", now, 0,
+	); err != nil {
+		t.Fatalf("insert pre-migration row: %v", err)
+	}
+	_ = db.Close()
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	hasState, err := columnExists(store.db, "workspaces", "state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasState {
+		t.Fatal("workspaces.state should exist after v6→v7 migration")
+	}
+
+	got, err := store.GetWorkspace("deploy", "alpha")
+	if err != nil || got == nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if got.State != WorkspaceStateActive {
+		t.Fatalf("expected pre-existing row to default to %q, got %q", WorkspaceStateActive, got.State)
+	}
+
+	var version int
+	if err := store.db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if version != 7 {
+		t.Fatalf("schema version = %d, want 7", version)
+	}
+
+	var rowCount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&rowCount); err != nil {
+		t.Fatal(err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("schema_version row count = %d, want 1", rowCount)
+	}
+}
+
+func TestMigrateFromVersion6IsIdempotentAfterPartialRun(t *testing.T) {
+	dbPath := seedV6DB(t)
+
+	db, _ := sql.Open("sqlite", dbPath)
+	if _, err := db.Exec(`ALTER TABLE workspaces ADD COLUMN state TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		t.Fatalf("simulating partial migration: %v", err)
+	}
+	_ = db.Close()
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open after partial migration: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	hasState, err := columnExists(store.db, "workspaces", "state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasState {
+		t.Fatal("state column should still exist after resumed migration")
+	}
+}
+
+func TestCreateWorkspaceDefaultsStateToActive(t *testing.T) {
+	store := openTestDB(t)
+	w := testMachineData("deploy", "demo")
+	w.State = ""
+	if err := store.CreateWorkspace(w); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	if w.State != WorkspaceStateActive {
+		t.Fatalf("CreateWorkspace should default blank State to %q, got %q", WorkspaceStateActive, w.State)
+	}
+
+	got, err := store.GetWorkspace("deploy", "demo")
+	if err != nil || got == nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if got.State != WorkspaceStateActive {
+		t.Fatalf("stored state = %q, want %q", got.State, WorkspaceStateActive)
+	}
+}
+
+func TestCreateWorkspaceRoundTripsPreservedState(t *testing.T) {
+	store := openTestDB(t)
+	w := testMachineData("deploy", "preserved-demo")
+	w.State = WorkspaceStatePreserved
+	if err := store.CreateWorkspace(w); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+
+	got, err := store.GetWorkspace("deploy", "preserved-demo")
+	if err != nil || got == nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if got.State != WorkspaceStatePreserved {
+		t.Fatalf("stored state = %q, want %q", got.State, WorkspaceStatePreserved)
+	}
+}
+
+func TestCreateWorkspaceRejectsUnknownState(t *testing.T) {
+	store := openTestDB(t)
+	w := testMachineData("deploy", "bogus")
+	w.State = "garbage"
+	if err := store.CreateWorkspace(w); err == nil {
+		t.Fatal("CreateWorkspace should reject unknown state values")
+	}
+}
+
+func TestUpdateWorkspaceStateRoundTrip(t *testing.T) {
+	store := openTestDB(t)
+	w := testMachineData("deploy", "flip")
+	if err := store.CreateWorkspace(w); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.UpdateWorkspaceState("deploy", "flip", WorkspaceStatePreserved); err != nil {
+		t.Fatalf("flip to preserved: %v", err)
+	}
+	got, err := store.GetWorkspace("deploy", "flip")
+	if err != nil || got == nil {
+		t.Fatal(err)
+	}
+	if got.State != WorkspaceStatePreserved {
+		t.Fatalf("after flip got %q, want %q", got.State, WorkspaceStatePreserved)
+	}
+
+	if err := store.UpdateWorkspaceState("deploy", "flip", WorkspaceStateActive); err != nil {
+		t.Fatalf("flip back to active: %v", err)
+	}
+	got, _ = store.GetWorkspace("deploy", "flip")
+	if got.State != WorkspaceStateActive {
+		t.Fatalf("after flip back got %q, want %q", got.State, WorkspaceStateActive)
+	}
+
+	if err := store.UpdateWorkspaceState("deploy", "flip", "nope"); err == nil {
+		t.Fatal("UpdateWorkspaceState should reject unknown state values")
+	}
+}

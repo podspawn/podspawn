@@ -73,6 +73,27 @@ func (e *HookError) Unwrap() error {
 	return e.Err
 }
 
+// PreservedWorkspaceError is returned by Ensure and Run when called against a
+// workspace whose state is "preserved" (a previous on_create failed and the
+// workspace was retained for retry/inspection). The retry path
+// (cmd/create.go → setupNamedMachine) clears the state back to "active" before
+// reaching here, so this error fires for direct attach paths (shell, ssh)
+// that should not silently restart a half-built workspace.
+type PreservedWorkspaceError struct {
+	Name string
+}
+
+func (e *PreservedWorkspaceError) Error() string {
+	return fmt.Sprintf("workspace %q is preserved after a previous on_create failure; rerun \"podspawn create %s\" to retry, or \"podspawn rm %s\" to discard", e.Name, e.Name, e.Name)
+}
+
+func (s *Session) refuseIfPreserved() error {
+	if s.Workspace != nil && s.Workspace.State == state.WorkspaceStatePreserved {
+		return &PreservedWorkspaceError{Name: s.Workspace.Name}
+	}
+	return nil
+}
+
 func (s *Session) userHomeDir() string {
 	return "/home/" + s.Username
 }
@@ -166,6 +187,9 @@ func (s *Session) Ensure(ctx context.Context) (string, error) {
 	if s.Store == nil {
 		return "", fmt.Errorf("state store required for machine creation")
 	}
+	if err := s.refuseIfPreserved(); err != nil {
+		return "", err
+	}
 	containerName, isNew, err := s.ensureContainerWithState(ctx)
 	if err != nil {
 		return "", err
@@ -179,6 +203,9 @@ func (s *Session) Ensure(ctx context.Context) (string, error) {
 }
 
 func (s *Session) Run(ctx context.Context) (int, error) {
+	if err := s.refuseIfPreserved(); err != nil {
+		return 1, err
+	}
 	if s.Store != nil {
 		containerName, isNew, err := s.ensureContainerWithState(ctx)
 		if err != nil {
@@ -617,6 +644,14 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 		}
 		if err := podfile.RunHookE(ctx, s.Runtime, containerName, s.Username, "on_create", s.pf.OnCreate); err != nil {
 			if s.HookFatal {
+				if s.Workspace != nil && s.WorkspaceStore != nil {
+					if markErr := s.WorkspaceStore.UpdateWorkspaceState(s.Username, s.Workspace.Name, state.WorkspaceStatePreserved); markErr != nil {
+						slog.Error("failed to mark workspace preserved after on_create failure",
+							"user", s.Username, "workspace", s.Workspace.Name, "error", markErr)
+					} else {
+						s.Workspace.State = state.WorkspaceStatePreserved
+					}
+				}
 				return &HookError{Hook: "on_create", Err: err}
 			}
 			slog.Warn("on_create hook failed", "user", s.Username, "project", s.ProjectName, "error", err)
@@ -633,6 +668,14 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 }
 
 func (s *Session) applyUserOverrides() {
+	// Workspace.Mode is the durable owner of the lifecycle-mode default.
+	// When a workspace is linked, seed the in-flight session mode from it
+	// before any project/user override layering. The project-mode and
+	// user-override precedence below is unchanged.
+	if s.Workspace != nil && s.Workspace.Mode != "" {
+		s.Mode = s.Workspace.Mode
+	}
+
 	uo := s.UserOverrides
 	if uo == nil {
 		// Still apply project mode override even without user overrides

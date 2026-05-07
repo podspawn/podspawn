@@ -118,6 +118,9 @@ func collectMachineRows(machines []*state.Workspace, sessions []*state.Session, 
 		if !machine.Initialized {
 			status = "uninitialized"
 		}
+		if machine.State == state.WorkspaceStatePreserved {
+			status = "preserved"
+		}
 		rowsByName[machine.Name] = localMachineRow{
 			Name:   machine.Name,
 			Status: status,
@@ -130,10 +133,15 @@ func collectMachineRows(machines []*state.Workspace, sessions []*state.Session, 
 		if name == "" {
 			name = "(default)"
 		}
-		if machinesOnly {
-			if _, ok := rowsByName[name]; !ok {
-				continue
-			}
+		existing, hasWorkspace := rowsByName[name]
+		if machinesOnly && !hasWorkspace {
+			continue
+		}
+		// Preserved workspaces stay preserved in the listing even if a
+		// stale session row briefly coexists (e.g. between workspace
+		// state update and session cleanup on a fatal on_create).
+		if hasWorkspace && existing.Status == "preserved" {
+			continue
 		}
 
 		status := sess.Status

@@ -135,3 +135,65 @@ func TestCollectRegisteredMachineRowsSkipsAdHocSessions(t *testing.T) {
 		t.Fatalf("row 1 = %+v, want backend-main/grace", rows[1])
 	}
 }
+
+func TestCollectLocalMachineRowsSurfacesPreserved(t *testing.T) {
+	store := state.NewFakeStore()
+	now := time.Now().UTC()
+
+	if err := store.CreateWorkspace(&state.Workspace{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		WorkspacePath: "/tmp/auth-fix",
+		Initialized:   false,
+		State:         state.WorkspaceStatePreserved,
+		CreatedAt:     now.Add(-30 * time.Minute),
+	}); err != nil {
+		t.Fatalf("create preserved workspace: %v", err)
+	}
+
+	rows, err := collectLocalMachineRows(store, "tenant", false)
+	if err != nil {
+		t.Fatalf("collectLocalMachineRows() error = %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "auth-fix" || rows[0].Status != "preserved" {
+		t.Fatalf("rows = %+v, want single auth-fix/preserved row", rows)
+	}
+}
+
+func TestCollectLocalMachineRowsKeepsPreservedOverStaleSession(t *testing.T) {
+	store := state.NewFakeStore()
+	now := time.Now().UTC()
+
+	if err := store.CreateWorkspace(&state.Workspace{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		WorkspacePath: "/tmp/auth-fix",
+		State:         state.WorkspaceStatePreserved,
+		CreatedAt:     now.Add(-30 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A briefly-coexisting session row (e.g. between marking preserved and
+	// destroying the session container) must not mask the preserved status.
+	if err := store.CreateSession(&state.Session{
+		User:         "tenant",
+		Project:      "auth-fix",
+		Image:        "ubuntu:24.04",
+		Status:       state.StatusRunning,
+		CreatedAt:    now.Add(-30 * time.Minute),
+		LastActivity: now,
+		MaxLifetime:  now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := collectLocalMachineRows(store, "tenant", false)
+	if err != nil {
+		t.Fatalf("collectLocalMachineRows() error = %v", err)
+	}
+	if len(rows) != 1 || rows[0].Status != "preserved" {
+		t.Fatalf("rows = %+v, want single auth-fix/preserved row", rows)
+	}
+}

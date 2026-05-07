@@ -55,7 +55,18 @@ type Workspace struct {
 	WorkspaceTarget string
 	CreatedAt       time.Time
 	Initialized     bool
+	// State is the workspace lifecycle state. Empty means "active" (the
+	// default for newly created rows). Set to "preserved" when a fatal
+	// on_create failure has retained the workspace for retry/inspection.
+	// The retry path (podspawn create) flips this back to "active" before
+	// re-running hooks; spawn refuses to attach to a preserved workspace.
+	State string
 }
+
+const (
+	WorkspaceStateActive    = "active"
+	WorkspaceStatePreserved = "preserved"
+)
 
 type SessionStore interface {
 	CreateSession(sess *Session) error
@@ -77,6 +88,7 @@ type WorkspaceStore interface {
 	GetWorkspace(user, name string) (*Workspace, error)
 	UpdateWorkspaceBranch(user, name, branch string) error
 	UpdateWorkspaceInitialized(user, name string, initialized bool) error
+	UpdateWorkspaceState(user, name, state string) error
 	DeleteWorkspace(user, name string) error
 	ListWorkspacesByUser(user string) ([]*Workspace, error)
 }
@@ -88,7 +100,7 @@ type Store struct {
 var _ SessionStore = (*Store)(nil)
 var _ WorkspaceStore = (*Store)(nil)
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 func Open(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -153,7 +165,7 @@ func migrate(db *sql.DB) error {
 			if err := ensureWorkspacesTable(db); err != nil {
 				return err
 			}
-			version = 6
+			version = 7
 		case 1, 2:
 			// Sessions are ephemeral; safe to recreate on upgrade from pre-v3 schemas.
 			slog.Warn("dropping legacy sessions during schema migration; check for orphaned containers with docker ps -f label=managed-by=podspawn", "from_version", version)
@@ -191,6 +203,11 @@ func migrate(db *sql.DB) error {
 				return err
 			}
 			version = 6
+		case 6:
+			if err := migrateV6toV7(db); err != nil {
+				return err
+			}
+			version = 7
 		default:
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
@@ -247,6 +264,24 @@ func migrateV5toV6(db *sql.DB) error {
 		}
 	}
 
+	return nil
+}
+
+// migrateV6toV7 adds a `state TEXT NOT NULL DEFAULT 'active'` column to the
+// workspaces table. It is a single additive ALTER guarded by columnExists so
+// a crash between the schema bump and the consolidateSchemaVersion write
+// resumes correctly.
+func migrateV6toV7(db *sql.DB) error {
+	hasState, err := columnExists(db, "workspaces", "state")
+	if err != nil {
+		return fmt.Errorf("checking workspaces.state: %w", err)
+	}
+	if hasState {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE workspaces ADD COLUMN state TEXT NOT NULL DEFAULT 'active'`); err != nil {
+		return fmt.Errorf("adding workspaces.state: %w", err)
+	}
 	return nil
 }
 
@@ -407,6 +442,7 @@ func ensureWorkspacesTable(db *sql.DB) error {
 			workspace_target TEXT NOT NULL,
 			created_at       DATETIME NOT NULL,
 			initialized      INTEGER NOT NULL DEFAULT 0,
+			state            TEXT NOT NULL DEFAULT 'active',
 			PRIMARY KEY (user, name)
 		)`)
 	if err != nil {
@@ -504,16 +540,22 @@ func (s *Store) CreateWorkspace(workspace *Workspace) error {
 	if workspace.Initialized {
 		initialized = 1
 	}
+	if workspace.State == "" {
+		workspace.State = WorkspaceStateActive
+	}
+	if workspace.State != WorkspaceStateActive && workspace.State != WorkspaceStatePreserved {
+		return fmt.Errorf("invalid workspace state %q", workspace.State)
+	}
 	_, err = s.db.Exec(
-		`INSERT INTO workspaces (id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO workspaces (id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		workspace.ID, workspace.User, workspace.Name, workspace.Project, workspace.RepoURL, workspace.Branch,
-		workspace.Mode, workspace.WorkspacePath, workspace.WorkspaceTarget, workspace.CreatedAt.UTC(), initialized,
+		workspace.Mode, workspace.WorkspacePath, workspace.WorkspaceTarget, workspace.CreatedAt.UTC(), initialized, workspace.State,
 	)
 	return err
 }
 
-const workspaceColumns = `id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized`
+const workspaceColumns = `id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state`
 
 func scanWorkspace(scanner interface{ Scan(...any) error }) (*Workspace, error) {
 	workspace := &Workspace{}
@@ -521,7 +563,7 @@ func scanWorkspace(scanner interface{ Scan(...any) error }) (*Workspace, error) 
 	var initialized int
 	err := scanner.Scan(
 		&id, &workspace.User, &workspace.Name, &workspace.Project, &workspace.RepoURL, &workspace.Branch, &workspace.Mode,
-		&workspace.WorkspacePath, &workspace.WorkspaceTarget, &workspace.CreatedAt, &initialized,
+		&workspace.WorkspacePath, &workspace.WorkspaceTarget, &workspace.CreatedAt, &initialized, &workspace.State,
 	)
 	if id.Valid {
 		workspace.ID = id.String
@@ -554,6 +596,14 @@ func (s *Store) UpdateWorkspaceInitialized(user, name string, initialized bool) 
 
 func (s *Store) UpdateWorkspaceBranch(user, name, branch string) error {
 	_, err := s.db.Exec(`UPDATE workspaces SET branch = ? WHERE user = ? AND name = ?`, branch, user, name)
+	return err
+}
+
+func (s *Store) UpdateWorkspaceState(user, name, state string) error {
+	if state != WorkspaceStateActive && state != WorkspaceStatePreserved {
+		return fmt.Errorf("invalid workspace state %q", state)
+	}
+	_, err := s.db.Exec(`UPDATE workspaces SET state = ? WHERE user = ? AND name = ?`, state, user, name)
 	return err
 }
 

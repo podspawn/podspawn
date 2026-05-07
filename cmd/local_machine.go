@@ -102,6 +102,9 @@ func configureSessionFromWorkspace(ls *localSession, workspace *state.Workspace,
 	ls.Session.ProjectName = workspace.Name
 	ls.Session.Project = project
 	ls.Session.Workspace = workspace
+	if workspace.Mode != "" {
+		ls.Session.Mode = workspace.Mode
+	}
 	ls.Session.RequireProjectImage = false
 	ls.Session.WorkspacePath = workspace.WorkspacePath
 	ls.Session.RemoveWorkspaceOnDestroy = removeWorkspaceOnDestroy
@@ -171,6 +174,17 @@ func setupNamedMachine(ctx context.Context, ls *localSession, name, projectName,
 		}
 		if branch != "" && existing.Branch != branch {
 			return false, fmt.Errorf("machine %q already uses branch %q", name, existing.Branch)
+		}
+		// Retry path for a workspace that was preserved after a fatal
+		// on_create failure. Clear the preserved flag (DB + in-memory)
+		// before configureSessionFromWorkspace, so spawn's defensive
+		// refusal does not fire on this legitimate retry. If on_create
+		// fails again, spawn re-marks it preserved.
+		if existing.State == state.WorkspaceStatePreserved {
+			if err := ls.Store.UpdateWorkspaceState(ls.Session.Username, name, state.WorkspaceStateActive); err != nil {
+				return false, fmt.Errorf("clearing preserved state on retry: %w", err)
+			}
+			existing.State = state.WorkspaceStateActive
 		}
 		configureSessionFromWorkspace(ls, existing, false)
 		return false, nil

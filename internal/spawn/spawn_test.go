@@ -1911,6 +1911,14 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 	if gotMachine == nil || gotMachine.Initialized {
 		t.Fatalf("machine should remain uninitialized, got %+v", gotMachine)
 	}
+	if gotMachine.State != state.WorkspaceStatePreserved {
+		t.Fatalf("workspace state = %q, want %q after fatal on_create",
+			gotMachine.State, state.WorkspaceStatePreserved)
+	}
+	if sess.Workspace.State != state.WorkspaceStatePreserved {
+		t.Fatalf("in-memory workspace state = %q, want %q",
+			sess.Workspace.State, state.WorkspaceStatePreserved)
+	}
 
 	gotSession, err := store.GetSession("deploy", "auth-fix")
 	if err != nil {
@@ -1918,6 +1926,96 @@ func TestEnsureOnCreateFailureLeavesMachineUninitialized(t *testing.T) {
 	}
 	if gotSession != nil {
 		t.Fatal("failed initialization should not leave a session row behind")
+	}
+}
+
+func TestEnsureRefusesPreservedWorkspace(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	machine := &state.Workspace{
+		User:            "deploy",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		WorkspacePath:   t.TempDir(),
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		State:           state.WorkspaceStatePreserved,
+	}
+	if err := store.CreateWorkspace(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:       "deploy",
+		ProjectName:    "auth-fix",
+		Runtime:        fake,
+		Image:          "ubuntu:24.04",
+		Shell:          "/bin/bash",
+		Store:          store,
+		WorkspaceStore: store,
+		Workspace:      machine,
+		LockDir:        t.TempDir(),
+	}
+
+	_, err := sess.Ensure(context.Background())
+	if err == nil {
+		t.Fatal("Ensure should refuse a preserved workspace")
+	}
+	var preservedErr *PreservedWorkspaceError
+	if !errors.As(err, &preservedErr) {
+		t.Fatalf("expected PreservedWorkspaceError, got %T: %v", err, err)
+	}
+	if preservedErr.Name != "auth-fix" {
+		t.Fatalf("error name = %q, want %q", preservedErr.Name, "auth-fix")
+	}
+	if len(fake.CreateCalls) != 0 {
+		t.Fatalf("expected no container creation when refusing preserved workspace, got %d calls",
+			len(fake.CreateCalls))
+	}
+}
+
+func TestRunRefusesPreservedWorkspace(t *testing.T) {
+	fake := runtime.NewFakeRuntime()
+	store := state.NewFakeStore()
+
+	machine := &state.Workspace{
+		User:            "deploy",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		WorkspacePath:   t.TempDir(),
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		State:           state.WorkspaceStatePreserved,
+	}
+	if err := store.CreateWorkspace(machine); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:       "deploy",
+		ProjectName:    "auth-fix",
+		Runtime:        fake,
+		Image:          "ubuntu:24.04",
+		Shell:          "/bin/bash",
+		Store:          store,
+		WorkspaceStore: store,
+		Workspace:      machine,
+		LockDir:        t.TempDir(),
+	}
+
+	exit, err := sess.Run(context.Background())
+	if err == nil {
+		t.Fatal("Run should refuse a preserved workspace")
+	}
+	if exit == 0 {
+		t.Fatal("Run should not return exit 0 when refusing preserved workspace")
+	}
+	var preservedErr *PreservedWorkspaceError
+	if !errors.As(err, &preservedErr) {
+		t.Fatalf("expected PreservedWorkspaceError, got %T: %v", err, err)
 	}
 }
 

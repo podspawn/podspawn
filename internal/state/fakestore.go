@@ -204,6 +204,13 @@ func (f *FakeStore) CreateWorkspace(workspace *Workspace) error {
 	if cp.Mode == "" {
 		cp.Mode = "grace-period"
 	}
+	if cp.State == "" {
+		cp.State = WorkspaceStateActive
+	}
+	if cp.State != WorkspaceStateActive && cp.State != WorkspaceStatePreserved {
+		return fmt.Errorf("invalid workspace state %q", cp.State)
+	}
+	workspace.State = cp.State
 	f.Workspaces[key] = &cp
 	return nil
 }
@@ -238,6 +245,20 @@ func (f *FakeStore) UpdateWorkspaceBranch(user, name, branch string) error {
 		return fmt.Errorf("no workspace for %s/%s", user, name)
 	}
 	workspace.Branch = branch
+	return nil
+}
+
+func (f *FakeStore) UpdateWorkspaceState(user, name, state string) error {
+	if state != WorkspaceStateActive && state != WorkspaceStatePreserved {
+		return fmt.Errorf("invalid workspace state %q", state)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	workspace, ok := f.Workspaces[sessionKey(user, name)]
+	if !ok {
+		return fmt.Errorf("no workspace for %s/%s", user, name)
+	}
+	workspace.State = state
 	return nil
 }
 
