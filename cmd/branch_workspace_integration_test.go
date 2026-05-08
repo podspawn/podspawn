@@ -175,6 +175,100 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 	}
 }
 
+// TestTwoWorkspacesFromOneProjectKeepIndependentGitState proves the Stage-4
+// substrate guarantee: each named workspace gets its own clone, so a commit
+// in one cannot bleed into a sibling workspace from the same registered
+// project. No Docker; just exercise setupNamedMachine through the clone path.
+func TestTwoWorkspacesFromOneProjectKeepIndependentGitState(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	root := t.TempDir()
+	oldCfg := cfg
+	cfg = config.LocalDefaults()
+	cfg.State.DBPath = filepath.Join(root, "state.db")
+	cfg.ProjectsFile = filepath.Join(root, "projects.yaml")
+	cfg.Defaults.Image = "ubuntu:24.04"
+	cfg.Defaults.Shell = "/bin/bash"
+	t.Cleanup(func() { cfg = oldCfg })
+
+	// Force the workspace clones into the test root rather than ~/.podspawn,
+	// since localWorkspacesRoot reads HOME.
+	t.Setenv("HOME", root)
+
+	remotePath, _ := createProjectRepo(t)
+	projects := map[string]config.ProjectConfig{
+		"backend": {Repo: remotePath},
+	}
+	if err := config.SaveProjects(cfg.ProjectsFile, projects); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := state.Open(cfg.State.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	newSession := func() *spawn.Session {
+		return &spawn.Session{
+			Username:       "tenant",
+			Store:          store,
+			WorkspaceStore: store,
+			Mode:           "grace-period",
+		}
+	}
+
+	mainSess := newSession()
+	mainLS := &localSession{Session: mainSess, Store: store}
+	if _, err := setupNamedMachine(context.Background(), mainLS, "auth-a", "backend", "main"); err != nil {
+		t.Fatalf("setup auth-a: %v", err)
+	}
+
+	featSess := newSession()
+	featLS := &localSession{Session: featSess, Store: store}
+	if _, err := setupNamedMachine(context.Background(), featLS, "auth-b", "backend", "feat/auth-retry"); err != nil {
+		t.Fatalf("setup auth-b: %v", err)
+	}
+
+	mainPath := mainSess.WorkspacePath
+	featPath := featSess.WorkspacePath
+	if mainPath == "" || featPath == "" {
+		t.Fatalf("workspace paths missing: main=%q feat=%q", mainPath, featPath)
+	}
+	if mainPath == featPath {
+		t.Fatalf("workspaces must not share a path; both got %q", mainPath)
+	}
+
+	mainBranch := gitOutput(t, mainPath, "branch", "--show-current")
+	featBranch := gitOutput(t, featPath, "branch", "--show-current")
+	if mainBranch != "main" {
+		t.Fatalf("auth-a checked out %q, want main", mainBranch)
+	}
+	if featBranch != "feat/auth-retry" {
+		t.Fatalf("auth-b checked out %q, want feat/auth-retry", featBranch)
+	}
+
+	// Commit a unique file inside auth-a; auth-b must not see it.
+	runGit(t, mainPath, "config", "user.email", "tenant@example.com")
+	runGit(t, mainPath, "config", "user.name", "Tenant")
+	probe := "auth-a-only.txt"
+	if err := os.WriteFile(filepath.Join(mainPath, probe), []byte("local-only"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, mainPath, "add", probe)
+	runGit(t, mainPath, "commit", "-m", "auth-a probe")
+
+	if _, err := os.Stat(filepath.Join(featPath, probe)); !os.IsNotExist(err) {
+		t.Fatalf("auth-b should not see auth-a's probe file (err=%v)", err)
+	}
+
+	mainHead := gitOutput(t, mainPath, "rev-parse", "HEAD")
+	featHead := gitOutput(t, featPath, "rev-parse", "HEAD")
+	if mainHead == featHead {
+		t.Fatalf("workspaces share HEAD %q; expected divergence after auth-a commit", mainHead)
+	}
+}
+
 func createProjectRepoWithCreateHook(t *testing.T) (remotePath, registeredPath string) {
 	t.Helper()
 

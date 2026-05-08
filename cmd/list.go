@@ -35,10 +35,14 @@ var listCmd = &cobra.Command{
 				return nil
 			}
 
-			_, _ = fmt.Fprintln(w, ui.Bold("NAME")+"\t"+ui.Bold("STATUS")+"\t"+ui.Bold("IMAGE")+"\t"+ui.Bold("AGE"))
+			_, _ = fmt.Fprintln(w, ui.Bold("NAME")+"\t"+ui.Bold("STATUS")+"\t"+ui.Bold("BRANCH")+"\t"+ui.Bold("IMAGE")+"\t"+ui.Bold("AGE"))
 			for _, row := range rows {
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-					row.Name, ui.ColorStatus(row.Status), ui.Faint(row.Image), row.Age,
+				branch := row.Branch
+				if branch == "" {
+					branch = "-"
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+					row.Name, ui.ColorStatus(row.Status), branch, ui.Faint(row.Image), row.Age,
 				)
 			}
 		} else {
@@ -81,6 +85,7 @@ type localMachineStore interface {
 type localMachineRow struct {
 	Name   string
 	Status string
+	Branch string
 	Image  string
 	Age    string
 }
@@ -124,6 +129,7 @@ func collectMachineRows(machines []*state.Workspace, sessions []*state.Session, 
 		rowsByName[machine.Name] = localMachineRow{
 			Name:   machine.Name,
 			Status: status,
+			Branch: machine.Branch,
 			Age:    cleanup.FormatDuration(time.Since(machine.CreatedAt)),
 		}
 	}
@@ -152,6 +158,7 @@ func collectMachineRows(machines []*state.Workspace, sessions []*state.Session, 
 		rowsByName[name] = localMachineRow{
 			Name:   name,
 			Status: status,
+			Branch: existing.Branch,
 			Image:  sess.Image,
 			Age:    cleanup.FormatDuration(time.Since(sess.CreatedAt)),
 		}

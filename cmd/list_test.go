@@ -161,6 +161,68 @@ func TestCollectLocalMachineRowsSurfacesPreserved(t *testing.T) {
 	}
 }
 
+func TestCollectLocalMachineRowsCarriesWorkspaceBranch(t *testing.T) {
+	store := state.NewFakeStore()
+	now := time.Now().UTC()
+
+	if err := store.CreateWorkspace(&state.Workspace{
+		User:          "tenant",
+		Name:          "auth-fix",
+		Project:       "backend",
+		Branch:        "feat/auth-retry",
+		WorkspacePath: "/tmp/auth-fix",
+		Initialized:   true,
+		CreatedAt:     now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateWorkspace(&state.Workspace{
+		User:          "tenant",
+		Name:          "scratch",
+		Project:       "backend",
+		WorkspacePath: "/tmp/scratch",
+		Initialized:   false,
+		CreatedAt:     now.Add(-30 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Session that takes over an existing workspace row must keep the
+	// workspace's branch in the rendered row, not blank it out.
+	if err := store.CreateSession(&state.Session{
+		User:         "tenant",
+		Project:      "auth-fix",
+		Image:        "ubuntu:24.04",
+		Status:       state.StatusRunning,
+		CreatedAt:    now.Add(-15 * time.Minute),
+		LastActivity: now,
+		MaxLifetime:  now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := collectLocalMachineRows(store, "tenant", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	for _, row := range rows {
+		switch row.Name {
+		case "auth-fix":
+			if row.Branch != "feat/auth-retry" {
+				t.Fatalf("auth-fix branch = %q, want feat/auth-retry", row.Branch)
+			}
+		case "scratch":
+			if row.Branch != "" {
+				t.Fatalf("scratch branch = %q, want empty", row.Branch)
+			}
+		default:
+			t.Fatalf("unexpected row %q", row.Name)
+		}
+	}
+}
+
 func TestCollectLocalMachineRowsKeepsPreservedOverStaleSession(t *testing.T) {
 	store := state.NewFakeStore()
 	now := time.Now().UTC()
