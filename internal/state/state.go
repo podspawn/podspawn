@@ -61,6 +61,12 @@ type Workspace struct {
 	// The retry path (podspawn create) flips this back to "active" before
 	// re-running hooks; spawn refuses to attach to a preserved workspace.
 	State string
+	// HeadCommit is the SHA recorded after the last successful on_create
+	// (post-hook, so any commits the hook itself produced are reflected).
+	// Cleared on switch-branch. Empty means unknown / never recorded:
+	// either the workspace is uninitialized, the capture failed
+	// (best-effort), or the row predates the column.
+	HeadCommit string
 }
 
 const (
@@ -89,6 +95,7 @@ type WorkspaceStore interface {
 	UpdateWorkspaceBranch(user, name, branch string) error
 	UpdateWorkspaceInitialized(user, name string, initialized bool) error
 	UpdateWorkspaceState(user, name, state string) error
+	UpdateWorkspaceHeadCommit(user, name, commit string) error
 	DeleteWorkspace(user, name string) error
 	ListWorkspacesByUser(user string) ([]*Workspace, error)
 }
@@ -100,7 +107,7 @@ type Store struct {
 var _ SessionStore = (*Store)(nil)
 var _ WorkspaceStore = (*Store)(nil)
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 func Open(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -208,6 +215,11 @@ func migrate(db *sql.DB) error {
 				return err
 			}
 			version = 7
+		case 7:
+			if err := migrateV7toV8(db); err != nil {
+				return err
+			}
+			version = 8
 		default:
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
@@ -281,6 +293,24 @@ func migrateV6toV7(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`ALTER TABLE workspaces ADD COLUMN state TEXT NOT NULL DEFAULT 'active'`); err != nil {
 		return fmt.Errorf("adding workspaces.state: %w", err)
+	}
+	return nil
+}
+
+// migrateV7toV8 adds a `head_commit TEXT NOT NULL DEFAULT ”` column to
+// workspaces for forensic git metadata. The column is empty for pre-existing
+// rows; it is lazily filled on the next successful on_create capture and
+// cleared by switch-branch. No filesystem I/O during migration.
+func migrateV7toV8(db *sql.DB) error {
+	hasHead, err := columnExists(db, "workspaces", "head_commit")
+	if err != nil {
+		return fmt.Errorf("checking workspaces.head_commit: %w", err)
+	}
+	if hasHead {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE workspaces ADD COLUMN head_commit TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("adding workspaces.head_commit: %w", err)
 	}
 	return nil
 }
@@ -443,6 +473,7 @@ func ensureWorkspacesTable(db *sql.DB) error {
 			created_at       DATETIME NOT NULL,
 			initialized      INTEGER NOT NULL DEFAULT 0,
 			state            TEXT NOT NULL DEFAULT 'active',
+			head_commit      TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (user, name)
 		)`)
 	if err != nil {
@@ -547,15 +578,15 @@ func (s *Store) CreateWorkspace(workspace *Workspace) error {
 		return fmt.Errorf("invalid workspace state %q", workspace.State)
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO workspaces (id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO workspaces (id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state, head_commit)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		workspace.ID, workspace.User, workspace.Name, workspace.Project, workspace.RepoURL, workspace.Branch,
-		workspace.Mode, workspace.WorkspacePath, workspace.WorkspaceTarget, workspace.CreatedAt.UTC(), initialized, workspace.State,
+		workspace.Mode, workspace.WorkspacePath, workspace.WorkspaceTarget, workspace.CreatedAt.UTC(), initialized, workspace.State, workspace.HeadCommit,
 	)
 	return err
 }
 
-const workspaceColumns = `id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state`
+const workspaceColumns = `id, user, name, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state, head_commit`
 
 func scanWorkspace(scanner interface{ Scan(...any) error }) (*Workspace, error) {
 	workspace := &Workspace{}
@@ -563,7 +594,7 @@ func scanWorkspace(scanner interface{ Scan(...any) error }) (*Workspace, error) 
 	var initialized int
 	err := scanner.Scan(
 		&id, &workspace.User, &workspace.Name, &workspace.Project, &workspace.RepoURL, &workspace.Branch, &workspace.Mode,
-		&workspace.WorkspacePath, &workspace.WorkspaceTarget, &workspace.CreatedAt, &initialized, &workspace.State,
+		&workspace.WorkspacePath, &workspace.WorkspaceTarget, &workspace.CreatedAt, &initialized, &workspace.State, &workspace.HeadCommit,
 	)
 	if id.Valid {
 		workspace.ID = id.String
@@ -604,6 +635,15 @@ func (s *Store) UpdateWorkspaceState(user, name, state string) error {
 		return fmt.Errorf("invalid workspace state %q", state)
 	}
 	_, err := s.db.Exec(`UPDATE workspaces SET state = ? WHERE user = ? AND name = ?`, state, user, name)
+	return err
+}
+
+// UpdateWorkspaceHeadCommit records the workspace's git HEAD after a
+// successful on_create, or clears it (empty string) on branch transitions.
+// Empty string is the unknown-but-valid sentinel; callers must not depend
+// on a non-empty value beyond "this is what HEAD was at last capture."
+func (s *Store) UpdateWorkspaceHeadCommit(user, name, commit string) error {
+	_, err := s.db.Exec(`UPDATE workspaces SET head_commit = ? WHERE user = ? AND name = ?`, commit, user, name)
 	return err
 }
 

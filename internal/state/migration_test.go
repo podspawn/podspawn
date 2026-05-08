@@ -532,8 +532,8 @@ func TestMigrateFromVersion6AddsStateColumnWithActiveDefault(t *testing.T) {
 	if err := store.db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 7 {
-		t.Fatalf("schema version = %d, want 7", version)
+	if version != schemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, schemaVersion)
 	}
 
 	var rowCount int
@@ -612,6 +612,169 @@ func TestCreateWorkspaceRejectsUnknownState(t *testing.T) {
 	w.State = "garbage"
 	if err := store.CreateWorkspace(w); err == nil {
 		t.Fatal("CreateWorkspace should reject unknown state values")
+	}
+}
+
+// seedV7DB seeds a v7 schema (post-state-column) so the v7→v8 migration has
+// a realistic starting point.
+func seedV7DB(t *testing.T) string {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "v7.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("opening seed db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	stmts := []string{
+		`CREATE TABLE schema_version (version INTEGER NOT NULL)`,
+		`INSERT INTO schema_version (version) VALUES (7)`,
+		`CREATE TABLE sessions (
+			user           TEXT NOT NULL,
+			project        TEXT NOT NULL DEFAULT '',
+			id             TEXT,
+			workspace_id   TEXT,
+			container_id   TEXT NOT NULL,
+			container_name TEXT NOT NULL,
+			image          TEXT NOT NULL,
+			status         TEXT NOT NULL DEFAULT 'running',
+			connections    INTEGER NOT NULL DEFAULT 1,
+			grace_expiry   DATETIME,
+			created_at     DATETIME NOT NULL,
+			last_activity  DATETIME NOT NULL,
+			max_lifetime   DATETIME NOT NULL,
+			network_id     TEXT NOT NULL DEFAULT '',
+			service_ids    TEXT NOT NULL DEFAULT '',
+			mode           TEXT NOT NULL DEFAULT 'grace-period',
+			PRIMARY KEY (user, project)
+		)`,
+		`CREATE UNIQUE INDEX idx_sessions_id ON sessions(id) WHERE id IS NOT NULL`,
+		`CREATE TABLE workspaces (
+			user             TEXT NOT NULL,
+			name             TEXT NOT NULL,
+			id               TEXT,
+			project          TEXT NOT NULL,
+			repo_url         TEXT NOT NULL,
+			branch           TEXT NOT NULL DEFAULT '',
+			mode             TEXT NOT NULL DEFAULT 'grace-period',
+			workspace_path   TEXT NOT NULL,
+			workspace_target TEXT NOT NULL,
+			created_at       DATETIME NOT NULL,
+			initialized      INTEGER NOT NULL DEFAULT 0,
+			state            TEXT NOT NULL DEFAULT 'active',
+			PRIMARY KEY (user, name)
+		)`,
+		`CREATE UNIQUE INDEX idx_workspaces_id ON workspaces(id) WHERE id IS NOT NULL`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("seed stmt failed: %v\nstmt: %s", err, s)
+		}
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing seed db: %v", err)
+	}
+	return dbPath
+}
+
+func TestMigrateFromVersion7AddsHeadCommitColumnEmpty(t *testing.T) {
+	dbPath := seedV7DB(t)
+
+	db, _ := sql.Open("sqlite", dbPath)
+	now := time.Now().UTC()
+	wsID := "01900000-0000-7000-8000-000000000042"
+	if _, err := db.Exec(
+		`INSERT INTO workspaces (user, name, id, project, repo_url, branch, mode, workspace_path, workspace_target, created_at, initialized, state)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"deploy", "auth-fix", wsID, "backend", "git@example.com:acme/backend.git",
+		"feat/auth-retry", "grace-period", "/ws/auth-fix", "/workspace/backend", now, 1, "active",
+	); err != nil {
+		t.Fatalf("insert pre-migration row: %v", err)
+	}
+	_ = db.Close()
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	hasHead, err := columnExists(store.db, "workspaces", "head_commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasHead {
+		t.Fatal("workspaces.head_commit should exist after v7→v8 migration")
+	}
+
+	got, err := store.GetWorkspace("deploy", "auth-fix")
+	if err != nil || got == nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if got.HeadCommit != "" {
+		t.Fatalf("pre-existing row should keep HeadCommit empty, got %q", got.HeadCommit)
+	}
+
+	var version int
+	if err := store.db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, schemaVersion)
+	}
+}
+
+func TestMigrateFromVersion7IsIdempotentAfterPartialRun(t *testing.T) {
+	dbPath := seedV7DB(t)
+
+	db, _ := sql.Open("sqlite", dbPath)
+	if _, err := db.Exec(`ALTER TABLE workspaces ADD COLUMN head_commit TEXT NOT NULL DEFAULT ''`); err != nil {
+		t.Fatalf("simulating partial migration: %v", err)
+	}
+	_ = db.Close()
+
+	store, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open after partial migration: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	hasHead, err := columnExists(store.db, "workspaces", "head_commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasHead {
+		t.Fatal("head_commit column should still exist after resumed migration")
+	}
+}
+
+func TestUpdateWorkspaceHeadCommitRoundTrip(t *testing.T) {
+	store := openTestDB(t)
+	w := testMachineData("deploy", "auth-fix")
+	if err := store.CreateWorkspace(w); err != nil {
+		t.Fatal(err)
+	}
+
+	const sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	if err := store.UpdateWorkspaceHeadCommit("deploy", "auth-fix", sha); err != nil {
+		t.Fatalf("set head_commit: %v", err)
+	}
+	got, err := store.GetWorkspace("deploy", "auth-fix")
+	if err != nil || got == nil {
+		t.Fatal(err)
+	}
+	if got.HeadCommit != sha {
+		t.Fatalf("after set: head_commit = %q, want %q", got.HeadCommit, sha)
+	}
+
+	if err := store.UpdateWorkspaceHeadCommit("deploy", "auth-fix", ""); err != nil {
+		t.Fatalf("clear head_commit: %v", err)
+	}
+	got, _ = store.GetWorkspace("deploy", "auth-fix")
+	if got.HeadCommit != "" {
+		t.Fatalf("after clear: head_commit = %q, want empty", got.HeadCommit)
 	}
 }
 

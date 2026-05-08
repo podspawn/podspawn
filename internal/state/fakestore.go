@@ -262,6 +262,17 @@ func (f *FakeStore) UpdateWorkspaceState(user, name, state string) error {
 	return nil
 }
 
+func (f *FakeStore) UpdateWorkspaceHeadCommit(user, name, commit string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	workspace, ok := f.Workspaces[sessionKey(user, name)]
+	if !ok {
+		return fmt.Errorf("no workspace for %s/%s", user, name)
+	}
+	workspace.HeadCommit = commit
+	return nil
+}
+
 func (f *FakeStore) DeleteWorkspace(user, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
