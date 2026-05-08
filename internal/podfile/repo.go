@@ -80,14 +80,36 @@ func SwitchBranch(ctx context.Context, dir, branch string) error {
 		return nil
 	}
 
-	status := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain")
-	statusOut, err := status.CombinedOutput()
+	clean, err := IsClean(ctx, dir)
 	if err != nil {
-		return fmt.Errorf("git status in %s: %s: %w", dir, string(statusOut), err)
+		return err
 	}
-	if strings.TrimSpace(string(statusOut)) != "" {
+	if !clean {
 		return fmt.Errorf("workspace %s has uncommitted changes", dir)
 	}
 
 	return CheckoutBranch(ctx, dir, branch)
+}
+
+// IsClean reports whether the working tree at dir has no uncommitted changes.
+// "Clean" is defined as `git status --porcelain` returning empty stdout.
+func IsClean(ctx context.Context, dir string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("git status in %s: %s: %w", dir, string(out), err)
+	}
+	return strings.TrimSpace(string(out)) == "", nil
+}
+
+// HeadCommit returns the SHA at HEAD for the repo at dir. If a hook performed
+// a commit during on_create (e.g. a generated lockfile), that commit is what
+// gets returned: the capture happens after hooks run, by design.
+func HeadCommit(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse in %s: %s: %w", dir, string(out), err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
