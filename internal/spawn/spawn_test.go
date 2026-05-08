@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2496,5 +2497,116 @@ func TestProjectModeWithoutUserOverrides(t *testing.T) {
 
 	if sess.Mode != "persistent" {
 		t.Errorf("mode = %q, want persistent (project override without user overrides)", sess.Mode)
+	}
+}
+
+// initGitRepo creates a fresh repo at dir with one initial commit and returns
+// the resulting HEAD SHA. Skips the test if git is unavailable.
+func initGitRepo(t *testing.T, dir string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.email", "ops@podspawn.test"},
+		{"config", "user.name", "spawn-test"},
+		{"commit", "--allow-empty", "-q", "-m", "init"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s: %v", args, string(out), err)
+		}
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCaptureWorkspaceHeadPersistsCommitAfterOnCreate(t *testing.T) {
+	store := state.NewFakeStore()
+	workspacePath := t.TempDir()
+	wantSHA := initGitRepo(t, workspacePath)
+
+	ws := &state.Workspace{
+		User:            "deploy",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		Branch:          "main",
+		Mode:            "grace-period",
+		WorkspacePath:   workspacePath,
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+	}
+	if err := store.CreateWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:       "deploy",
+		ProjectName:    "auth-fix",
+		WorkspaceStore: store,
+		Workspace:      ws,
+		WorkspacePath:  workspacePath,
+	}
+	sess.captureWorkspaceHead(context.Background())
+
+	got, err := store.GetWorkspace("deploy", "auth-fix")
+	if err != nil || got == nil {
+		t.Fatal(err)
+	}
+	if got.HeadCommit != wantSHA {
+		t.Fatalf("persisted head_commit = %q, want %q", got.HeadCommit, wantSHA)
+	}
+	if sess.Workspace.HeadCommit != wantSHA {
+		t.Fatalf("in-memory head_commit = %q, want %q", sess.Workspace.HeadCommit, wantSHA)
+	}
+}
+
+// TestCaptureWorkspaceHeadStaysSilentOnNonRepo proves the guardrail: a
+// failed git lookup must not surface as an error and must not poison the
+// in-memory workspace row.
+func TestCaptureWorkspaceHeadStaysSilentOnNonRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	store := state.NewFakeStore()
+	notARepo := t.TempDir()
+
+	ws := &state.Workspace{
+		User:            "deploy",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         "git@example.com:acme/backend.git",
+		Branch:          "main",
+		Mode:            "grace-period",
+		WorkspacePath:   notARepo,
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+	}
+	if err := store.CreateWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &Session{
+		Username:       "deploy",
+		ProjectName:    "auth-fix",
+		WorkspaceStore: store,
+		Workspace:      ws,
+		WorkspacePath:  notARepo,
+	}
+	// Must not panic and must not return anything; we only assert it leaves
+	// the row's head_commit empty.
+	sess.captureWorkspaceHead(context.Background())
+
+	got, err := store.GetWorkspace("deploy", "auth-fix")
+	if err != nil || got == nil {
+		t.Fatal(err)
+	}
+	if got.HeadCommit != "" {
+		t.Fatalf("non-repo capture should leave head_commit empty, got %q", got.HeadCommit)
 	}
 }

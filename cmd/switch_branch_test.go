@@ -55,6 +55,44 @@ func TestSwitchLocalMachineBranchUpdatesWorkspaceAndState(t *testing.T) {
 	}
 }
 
+func TestSwitchLocalMachineBranchClearsHeadCommit(t *testing.T) {
+	t.Setenv("USER", "tenant")
+
+	store := state.NewFakeStore()
+	rt := runtime.NewFakeRuntime()
+	remotePath, workspacePath := createProjectRepo(t)
+
+	if err := store.CreateWorkspace(&state.Workspace{
+		User:            "tenant",
+		Name:            "auth-fix",
+		Project:         "backend",
+		RepoURL:         remotePath,
+		Branch:          "main",
+		Mode:            "grace-period",
+		WorkspacePath:   workspacePath,
+		WorkspaceTarget: "/workspace/backend",
+		CreatedAt:       time.Now().UTC(),
+		Initialized:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateWorkspaceHeadCommit("tenant", "auth-fix", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := switchLocalWorkspaceBranch(context.Background(), rt, store, "tenant", "auth-fix", "feat/auth-retry"); err != nil {
+		t.Fatalf("switchLocalWorkspaceBranch() error = %v", err)
+	}
+
+	got, err := store.GetWorkspace("tenant", "auth-fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HeadCommit != "" {
+		t.Fatalf("head_commit = %q, want empty after branch switch", got.HeadCommit)
+	}
+}
+
 func TestSwitchLocalMachineBranchRefusesRunningMachine(t *testing.T) {
 	t.Setenv("USER", "tenant")
 

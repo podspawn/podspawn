@@ -78,6 +78,9 @@ func switchLocalWorkspaceBranch(ctx context.Context, rt runtime.Runtime, store w
 	if err := store.UpdateWorkspaceInitialized(user, name, false); err != nil {
 		return fmt.Errorf("marking workspace for reinitialization: %w", err)
 	}
+	if err := store.UpdateWorkspaceHeadCommit(user, name, ""); err != nil {
+		return fmt.Errorf("clearing workspace head_commit: %w", err)
+	}
 
 	return nil
 }

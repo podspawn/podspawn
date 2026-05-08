@@ -660,11 +660,34 @@ func (s *Session) runHooks(ctx context.Context, containerName string, isNew bool
 				return fmt.Errorf("marking workspace initialized: %w", err)
 			}
 			s.Workspace.Initialized = true
+			s.captureWorkspaceHead(ctx)
 		}
 	}
 
 	podfile.RunHook(ctx, s.Runtime, containerName, s.Username, "on_start", s.pf.OnStart)
 	return nil
+}
+
+// captureWorkspaceHead records the workspace's HEAD commit after a successful
+// on_create. Forensic metadata only; failures here must never escalate into a
+// session-create failure. Server-mode sessions and the persistent home-only
+// flow have no host workspace path, so the function is a no-op for them.
+func (s *Session) captureWorkspaceHead(ctx context.Context) {
+	if s.WorkspacePath == "" || s.Workspace == nil || s.WorkspaceStore == nil {
+		return
+	}
+	commit, err := podfile.HeadCommit(ctx, s.WorkspacePath)
+	if err != nil {
+		slog.Warn("could not capture workspace HEAD",
+			"user", s.Username, "workspace", s.Workspace.Name, "path", s.WorkspacePath, "error", err)
+		return
+	}
+	if err := s.WorkspaceStore.UpdateWorkspaceHeadCommit(s.Username, s.Workspace.Name, commit); err != nil {
+		slog.Warn("could not persist workspace HEAD",
+			"user", s.Username, "workspace", s.Workspace.Name, "commit", commit, "error", err)
+		return
+	}
+	s.Workspace.HeadCommit = commit
 }
 
 func (s *Session) applyUserOverrides() {
