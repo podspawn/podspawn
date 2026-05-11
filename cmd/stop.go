@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/runtime"
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/state"
 	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
@@ -31,23 +32,24 @@ var stopCmd = &cobra.Command{
 		}
 		defer func() { _ = store.Close() }()
 
-		sess, err := store.GetSession(user, project)
-		if err != nil {
-			return fmt.Errorf("looking up session: %w", err)
-		}
-		if sess == nil {
-			return fmt.Errorf("no active machine %q", args[0])
-		}
-
 		rt, err := runtime.NewDockerRuntime()
 		if err != nil {
 			return fmt.Errorf("connecting to docker: %w", err)
 		}
 
+		svc := session.New(session.Options{
+			SessionStore:   store,
+			WorkspaceStore: store,
+			Runtime:        rt,
+		})
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := cleanup.DestroySession(ctx, rt, store, sess); err != nil {
+		if err := svc.End(ctx, session.Ref{User: user, Name: project}); err != nil {
+			if errors.Is(err, session.ErrSessionNotFound) {
+				return fmt.Errorf("no active machine %q", args[0])
+			}
 			return fmt.Errorf("destroying machine: %w", err)
 		}
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -39,17 +40,29 @@ var runCmd = &cobra.Command{
 		ls.Session.Mode = "destroy-on-disconnect"
 		ls.Session.GracePeriod = 0
 
+		var attachSession = ls.Session
 		if projectName != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
-			if err := setupEphemeralProjectRun(ctx, ls, name, projectName, branch); err != nil {
+			res, err := ls.Service.Create(ctx, session.CreateRequest{
+				User:            ls.Session.Username,
+				Name:            name,
+				ProjectName:     projectName,
+				Branch:          branch,
+				Ephemeral:       true,
+				Provision:       false, // RunAndCleanup drives the container lifecycle below
+				SessionTemplate: ls.Session,
+			})
+			if err != nil {
 				return err
 			}
+			// Guardrail: Attach() is permitted in cmd/run.go.
+			attachSession = res.Attach()
 		}
 
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 
-		exitCode := ls.Session.RunAndCleanup(context.Background())
+		exitCode := attachSession.RunAndCleanup(context.Background())
 		if exitCode != 0 {
 			os.Exit(exitCode)
 		}

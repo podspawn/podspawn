@@ -2,18 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/podspawn/podspawn/internal/state"
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
 )
-
-type shellTargetStore interface {
-	GetWorkspace(user, name string) (*state.Workspace, error)
-	GetSession(user, project string) (*state.Session, error)
-}
 
 var shellCmd = &cobra.Command{
 	Use:   "shell [user@]<name>",
@@ -37,20 +33,24 @@ var shellCmd = &cobra.Command{
 		}
 
 		if isLocalMode {
-			if err := requireExistingShellTarget(ls.Store, ls.Session.Username, name); err != nil {
+			res, err := ls.Service.Inspect(context.Background(), session.Ref{
+				User: ls.Session.Username,
+				Name: name,
+			})
+			if err != nil {
+				if errors.Is(err, session.ErrWorkspaceNotFound) {
+					return fmt.Errorf("no workspace or session named %q for user %q", name, ls.Session.Username)
+				}
 				return err
 			}
-
-			workspace, wsErr := ls.Store.GetWorkspace(ls.Session.Username, name)
-			if wsErr != nil {
-				return wsErr
-			}
-			if workspace != nil {
-				configureSessionFromWorkspace(ls, workspace, false)
+			if res.Workspace != nil {
+				// Guardrail: cmd/shell.go may touch the spawn template;
+				// this path uses ApplyWorkspaceToTemplate directly rather
+				// than CreateResult.Attach() because Inspect is read-only.
+				session.ApplyWorkspaceToTemplate(ls.Session, res.Workspace, false)
 			}
 		}
 
-		// Prevent routeSession from treating this as a non-interactive command
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 
 		exitCode := ls.Session.RunAndCleanup(context.Background())
@@ -59,26 +59,6 @@ var shellCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
-
-func requireExistingShellTarget(store shellTargetStore, user, name string) error {
-	workspace, err := store.GetWorkspace(user, name)
-	if err != nil {
-		return err
-	}
-	if workspace != nil {
-		return nil
-	}
-
-	session, err := store.GetSession(user, name)
-	if err != nil {
-		return err
-	}
-	if session != nil {
-		return nil
-	}
-
-	return fmt.Errorf("no workspace or session named %q for user %q", name, user)
 }
 
 func parseShellTarget(target string) (user, project string) {

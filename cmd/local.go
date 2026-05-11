@@ -10,6 +10,7 @@ import (
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/runtime"
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -17,6 +18,7 @@ import (
 type localSession struct {
 	Session *spawn.Session
 	Store   *state.Store
+	Service *session.Service
 	closers []func()
 }
 
@@ -99,6 +101,15 @@ func buildLocalSession(name string) (*localSession, error) {
 		sess.Audit = auditLogger
 		ls.closers = append(ls.closers, func() { _ = auditLogger.Close() })
 	}
+
+	ls.Service = session.New(session.Options{
+		SessionStore:   store,
+		WorkspaceStore: store,
+		Runtime:        rt,
+		Audit:          sess.Audit,
+		ProjectsFile:   cfg.ProjectsFile,
+		WorkspacesRoot: localWorkspacesRoot(),
+	})
 
 	return ls, nil
 }

@@ -126,7 +126,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	// Fresh: destroy existing session
 	if fresh {
-		_ = destroySessionByName(ls, sessionName)
+		_ = endSessionByName(ls, sessionName)
 	}
 
 	// Check for command after --

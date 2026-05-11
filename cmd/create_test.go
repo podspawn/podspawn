@@ -36,14 +36,14 @@ func TestCreateCmdHasProjectFlags(t *testing.T) {
 	}
 }
 
-func TestWrapCreateEnsureErrorAddsWorkspaceRecoveryHintForHookFailures(t *testing.T) {
-	err := wrapCreateEnsureError(
+func TestWrapCreateErrorAddsWorkspaceRecoveryHintForHookFailures(t *testing.T) {
+	err := wrapCreateError(
 		"backend-main",
 		"/Users/tenant/.podspawn/workspaces/backend-main",
 		&spawn.HookError{Hook: "on_create", Err: errors.New("exit status 9")},
 	)
 	if err == nil {
-		t.Fatal("wrapCreateEnsureError() returned nil")
+		t.Fatal("wrapCreateError() returned nil")
 	}
 
 	msg := err.Error()

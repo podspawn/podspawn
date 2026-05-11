@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
@@ -41,21 +42,19 @@ var createCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
-		createdMachine, err := setupNamedMachine(ctx, ls, name, projectName, branch)
-		if err != nil {
-			return err
-		}
-
 		spin := ui.NewSpinner("Creating %s (%s)", name, ls.Session.Image)
 
-		_, err = ls.Session.Ensure(ctx)
+		_, err = ls.Service.Create(ctx, session.CreateRequest{
+			User:            ls.Session.Username,
+			Name:            name,
+			ProjectName:     projectName,
+			Branch:          branch,
+			Provision:       true,
+			SessionTemplate: ls.Session,
+		})
 		if err != nil {
 			spin.Fail()
-			var hookErr *spawn.HookError
-			if createdMachine && !errors.As(err, &hookErr) {
-				cleanupNewMachineOnFailure(ls)
-			}
-			return wrapCreateEnsureError(name, ls.Session.WorkspacePath, err)
+			return wrapCreateError(name, ls.Session.WorkspacePath, err)
 		}
 
 		spin.Stop()
@@ -70,11 +69,14 @@ func init() {
 	rootCmd.AddCommand(createCmd)
 }
 
-func wrapCreateEnsureError(name, workspacePath string, err error) error {
+// wrapCreateError preserves the existing user-facing message that points at
+// a preserved workspace after an on_create failure. The service returns a
+// wrapped spawn.HookError under ErrRuntimeFailure; we unwrap to recover the
+// original recovery hint.
+func wrapCreateError(name, workspacePath string, err error) error {
 	var hookErr *spawn.HookError
 	if !errors.As(err, &hookErr) || hookErr.Hook != "on_create" || workspacePath == "" {
 		return err
 	}
-
 	return fmt.Errorf("%w; workspace preserved at %q; rerun \"podspawn create %s\" to retry, or \"podspawn rm %s\" to discard", err, workspacePath, name, name)
 }

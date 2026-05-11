@@ -13,9 +13,20 @@ import (
 	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/runtime"
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
 )
+
+func mustListLocal(t *testing.T, store *state.Store, user string) []session.MachineRow {
+	t.Helper()
+	svc := session.New(session.Options{SessionStore: store, WorkspaceStore: store})
+	res, err := svc.List(context.Background(), session.ListRequest{User: user})
+	if err != nil {
+		t.Fatalf("svc.List: %v", err)
+	}
+	return res.Rows
+}
 
 func mustDockerRuntimeForCmd(t *testing.T) runtime.Runtime {
 	t.Helper()
@@ -104,10 +115,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal("expected machine after create")
 	}
 
-	rows, err := collectLocalMachineRows(store, "tenant", false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rows := mustListLocal(t, store, "tenant")
 	if len(rows) != 1 || rows[0].Status != "running" {
 		t.Fatalf("rows after create = %+v, want one running machine", rows)
 	}
@@ -132,10 +140,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err = collectLocalMachineRows(store, "tenant", false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rows = mustListLocal(t, store, "tenant")
 	if len(rows) != 1 || rows[0].Status != "stopped" {
 		t.Fatalf("rows after stop = %+v, want one stopped machine", rows)
 	}
@@ -163,10 +168,7 @@ func TestBranchWorkspaceLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err = collectLocalMachineRows(store, "tenant", false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rows = mustListLocal(t, store, "tenant")
 	if len(rows) != 1 || rows[0].Status != "running" {
 		t.Fatalf("rows after shell recreate = %+v, want one running machine", rows)
 	}

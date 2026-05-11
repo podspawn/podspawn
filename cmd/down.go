@@ -3,14 +3,15 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/podfile"
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +51,7 @@ func runDown(cmd *cobra.Command, _ []string) error {
 	}
 	defer ls.Close()
 
-	if err := destroySessionByName(ls, sessionName); err != nil {
+	if err := endSessionByName(ls, sessionName); err != nil {
 		return err
 	}
 
@@ -75,7 +76,7 @@ func removeServiceVolumes(ls *localSession, podfileDir string) {
 
 	for _, svc := range rawPf.Services {
 		for _, vol := range svc.Volumes {
-			// Named volumes have format "name:/path", bind mounts have "/host:/container"
+			// Named volumes are "name:/path"; bind mounts start with "/".
 			parts := strings.SplitN(vol, ":", 2)
 			if len(parts) != 2 || strings.HasPrefix(parts[0], "/") {
 				continue
@@ -89,19 +90,20 @@ func removeServiceVolumes(ls *localSession, podfileDir string) {
 	}
 }
 
-func destroySessionByName(ls *localSession, sessionName string) error {
-	sess, err := ls.Store.GetSession(ls.Session.Username, sessionName)
-	if err != nil {
-		return fmt.Errorf("looking up session: %w", err)
-	}
-	if sess == nil {
-		return fmt.Errorf("no active session %q for user %s", sessionName, ls.Session.Username)
-	}
-
+// endSessionByName resolves a name to its (user, project) tuple and ends
+// the live session. Used by `podspawn down` and by `podspawn dev --fresh`.
+func endSessionByName(ls *localSession, sessionName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := cleanup.DestroySession(ctx, ls.Session.Runtime, ls.Store, sess); err != nil {
+	err := ls.Service.End(ctx, session.Ref{
+		User: ls.Session.Username,
+		Name: sessionName,
+	})
+	if err != nil {
+		if errors.Is(err, session.ErrSessionNotFound) {
+			return fmt.Errorf("no active session %q for user %s", sessionName, ls.Session.Username)
+		}
 		return fmt.Errorf("stopping session: %w", err)
 	}
 
