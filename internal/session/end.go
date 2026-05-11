@@ -30,7 +30,9 @@ func (s *Service) End(ctx context.Context, ref Ref) error {
 		Store:   s.sessions,
 		Session: sess,
 	}); err != nil {
-		return fmt.Errorf("%w: %v", ErrRuntimeFailure, err)
+		// Double-%w keeps the underlying runtime error unwrap-able while
+		// still letting callers branch on session.ErrRuntimeFailure.
+		return fmt.Errorf("%w: %w", ErrRuntimeFailure, err)
 	}
 	return nil
 }

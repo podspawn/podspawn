@@ -137,6 +137,42 @@ func TestCreateRejectsMissingTemplate(t *testing.T) {
 	}
 }
 
+// TestCreateProvisionErrorPreservesHookErrorUnwrap regression-tests the
+// Stage 5 blocker: cmd/create.go's wrapCreateError reaches the
+// recovery-hint path via errors.As(err, &*spawn.HookError). The earlier
+// %w: %v wrap discarded the HookError from the unwrap chain, silently
+// breaking the preserved-workspace hint after a fatal on_create.
+func TestCreateProvisionErrorPreservesHookErrorUnwrap(t *testing.T) {
+	store := state.NewFakeStore()
+	hookErr := &spawn.HookError{Hook: "on_create", Err: errors.New("exit status 9")}
+	lc := &fakeLifecycle{provisionErr: hookErr}
+	svc := New(Options{
+		SessionStore:   store,
+		WorkspaceStore: store,
+		Lifecycle:      lc,
+	})
+
+	_, err := svc.Create(context.Background(), CreateRequest{
+		User:            "tenant",
+		Name:            "auth-fix",
+		Provision:       true,
+		SessionTemplate: &spawn.Session{Username: "tenant"},
+	})
+	if err == nil {
+		t.Fatal("Create error = nil, want runtime failure")
+	}
+	if !errors.Is(err, ErrRuntimeFailure) {
+		t.Fatalf("errors.Is(err, ErrRuntimeFailure) = false; err = %v", err)
+	}
+	var got *spawn.HookError
+	if !errors.As(err, &got) {
+		t.Fatalf("errors.As(err, &*spawn.HookError) = false; err = %v", err)
+	}
+	if got.Hook != "on_create" {
+		t.Fatalf("HookError.Hook = %q, want on_create", got.Hook)
+	}
+}
+
 func TestCreateRunsProvisionWhenRequested(t *testing.T) {
 	store := state.NewFakeStore()
 	lc := &fakeLifecycle{provisionResult: ProvisionResult{ContainerName: "podspawn-tenant"}}

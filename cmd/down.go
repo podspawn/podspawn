@@ -51,7 +51,7 @@ func runDown(cmd *cobra.Command, _ []string) error {
 	}
 	defer ls.Close()
 
-	if err := endSessionByName(ls, sessionName); err != nil {
+	if err := destroySessionByName(ls, sessionName); err != nil {
 		return err
 	}
 
@@ -90,9 +90,11 @@ func removeServiceVolumes(ls *localSession, podfileDir string) {
 	}
 }
 
-// endSessionByName resolves a name to its (user, project) tuple and ends
-// the live session. Used by `podspawn down` and by `podspawn dev --fresh`.
-func endSessionByName(ls *localSession, sessionName string) error {
+// destroySessionByName resolves a name to its (user, project) tuple and
+// ends the live session. Used by `podspawn down` and by
+// `podspawn dev --fresh`. The name is historical (predates the Stage 5
+// session plane); functionally it delegates to Service.End.
+func destroySessionByName(ls *localSession, sessionName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

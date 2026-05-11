@@ -74,7 +74,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		if res.Created && !errors.As(err, &hookErr) {
 			s.rollbackCreate(tpl)
 		}
-		return nil, fmt.Errorf("%w: %v", ErrRuntimeFailure, err)
+		// Double-%w preserves both: errors.Is(err, ErrRuntimeFailure) and
+		// errors.As(err, &*spawn.HookError) — the latter is load-bearing
+		// for cmd/create.go's wrapCreateError, which surfaces the
+		// preserved-workspace recovery hint on on_create failures.
+		return nil, fmt.Errorf("%w: %w", ErrRuntimeFailure, err)
 	}
 	res.ContainerName = provisioned.ContainerName
 	return res, nil
