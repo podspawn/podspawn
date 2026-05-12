@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/ui"
@@ -46,6 +47,7 @@ var createCmd = &cobra.Command{
 
 		_, err = ls.Service.Create(ctx, session.CreateRequest{
 			User:            ls.Session.Username,
+			Actor:           identity.Human(ls.Session.Username),
 			Name:            name,
 			ProjectName:     projectName,
 			Branch:          branch,

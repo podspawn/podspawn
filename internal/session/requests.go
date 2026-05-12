@@ -1,6 +1,7 @@
 package session
 
 import (
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -29,6 +30,13 @@ type CreateRequest struct {
 	Name        string
 	ProjectName string // empty = no project / default-image flow
 	Branch      string // CLI override; empty = derived from project / podfile
+
+	// Actor is who is establishing this session. Required: Service.Create
+	// rejects a request whose Actor is not identity.Actor.Valid(), and one
+	// whose Actor.OSUser disagrees with User. For local CLI flows the actor
+	// is identity.Human(User). Stage 6 validates and holds it; forwarding it
+	// onto spawn.Session and audit events is Stage 7.
+	Actor identity.Actor
 
 	// Ephemeral, when true, sets up a one-shot workspace (no workspaces row;
 	// clone to a tmp dir; RemoveWorkspaceOnDestroy=true). Mirrors the

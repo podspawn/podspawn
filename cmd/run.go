@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -46,6 +47,7 @@ var runCmd = &cobra.Command{
 			defer cancel()
 			res, err := ls.Service.Create(ctx, session.CreateRequest{
 				User:            ls.Session.Username,
+				Actor:           identity.Human(ls.Session.Username),
 				Name:            name,
 				ProjectName:     projectName,
 				Branch:          branch,

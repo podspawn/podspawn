@@ -32,6 +32,12 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if req.User == "" {
 		return nil, fmt.Errorf("%w: missing User", ErrInvalidRequest)
 	}
+	if !req.Actor.Valid() {
+		return nil, fmt.Errorf("%w: missing or invalid Actor", ErrInvalidRequest)
+	}
+	if req.Actor.OSUser != req.User {
+		return nil, fmt.Errorf("%w: Actor.OSUser %q != User %q", ErrInvalidRequest, req.Actor.OSUser, req.User)
+	}
 
 	tpl := req.SessionTemplate
 	tpl.Username = req.User

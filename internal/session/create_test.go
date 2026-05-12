@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -44,6 +45,7 @@ func TestCreateClearsPreservedStateOnRetry(t *testing.T) {
 	}
 	res, err := svc.Create(context.Background(), CreateRequest{
 		User:            "tenant",
+		Actor:           identity.Human("tenant"),
 		Name:            "auth-fix",
 		ProjectName:     "backend",
 		SessionTemplate: template,
@@ -85,6 +87,7 @@ func TestCreateRejectsProjectMismatch(t *testing.T) {
 
 	_, err := svc.Create(context.Background(), CreateRequest{
 		User:            "tenant",
+		Actor:           identity.Human("tenant"),
 		Name:            "auth-fix",
 		ProjectName:     "frontend",
 		SessionTemplate: &spawn.Session{Username: "tenant"},
@@ -115,6 +118,7 @@ func TestCreateRejectsBranchMismatch(t *testing.T) {
 
 	_, err := svc.Create(context.Background(), CreateRequest{
 		User:            "tenant",
+		Actor:           identity.Human("tenant"),
 		Name:            "auth-fix",
 		ProjectName:     "backend",
 		Branch:          "feat/auth-retry",
@@ -137,6 +141,41 @@ func TestCreateRejectsMissingTemplate(t *testing.T) {
 	}
 }
 
+// TestCreateRejectsInvalidActor pins the Stage 6 contract: a session must be
+// attributable to a valid actor, and the actor's OS projection must agree with
+// the request's User so the two can't drift.
+func TestCreateRejectsInvalidActor(t *testing.T) {
+	store := state.NewFakeStore()
+	svc := New(Options{
+		SessionStore:   store,
+		WorkspaceStore: store,
+		Lifecycle:      &fakeLifecycle{},
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		_, err := svc.Create(context.Background(), CreateRequest{
+			User:            "tenant",
+			Name:            "x",
+			SessionTemplate: &spawn.Session{Username: "tenant"},
+		})
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("Create error = %v, want ErrInvalidRequest", err)
+		}
+	})
+
+	t.Run("os user mismatch", func(t *testing.T) {
+		_, err := svc.Create(context.Background(), CreateRequest{
+			User:            "tenant",
+			Actor:           identity.Human("someone-else"),
+			Name:            "x",
+			SessionTemplate: &spawn.Session{Username: "tenant"},
+		})
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("Create error = %v, want ErrInvalidRequest", err)
+		}
+	})
+}
+
 // TestCreateProvisionErrorPreservesHookErrorUnwrap regression-tests the
 // Stage 5 blocker: cmd/create.go's wrapCreateError reaches the
 // recovery-hint path via errors.As(err, &*spawn.HookError). The earlier
@@ -154,6 +193,7 @@ func TestCreateProvisionErrorPreservesHookErrorUnwrap(t *testing.T) {
 
 	_, err := svc.Create(context.Background(), CreateRequest{
 		User:            "tenant",
+		Actor:           identity.Human("tenant"),
 		Name:            "auth-fix",
 		Provision:       true,
 		SessionTemplate: &spawn.Session{Username: "tenant"},
@@ -184,6 +224,7 @@ func TestCreateRunsProvisionWhenRequested(t *testing.T) {
 
 	res, err := svc.Create(context.Background(), CreateRequest{
 		User:            "tenant",
+		Actor:           identity.Human("tenant"),
 		Name:            "scratch",
 		Provision:       true,
 		SessionTemplate: &spawn.Session{Username: "tenant"},
@@ -218,6 +259,7 @@ func TestCreateRollsBackOnNonHookProvisionFailure(t *testing.T) {
 	// integration-level test exercises rollback against the clone path.
 	_, err := svc.Create(context.Background(), CreateRequest{
 		User:            "tenant",
+		Actor:           identity.Human("tenant"),
 		Name:            "no-such-project",
 		Provision:       true,
 		SessionTemplate: &spawn.Session{Username: "tenant"},
