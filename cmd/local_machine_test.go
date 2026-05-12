@@ -391,14 +391,20 @@ func TestSetupNamedMachineLogsAuditEvent(t *testing.T) {
 	}
 
 	entry := readSingleAuditEntry(t, auditPath)
-	if entry["event"] != "machine.create" {
-		t.Fatalf("event = %q, want machine.create", entry["event"])
+	if entry["event"] != "workspace.create" {
+		t.Fatalf("event = %q, want workspace.create", entry["event"])
 	}
 	if entry["project"] != "backend" {
 		t.Fatalf("project = %q, want backend", entry["project"])
 	}
 	if entry["branch"] != "feat/auth-retry" {
 		t.Fatalf("branch = %q, want feat/auth-retry", entry["branch"])
+	}
+	if entry["actor"] != "human:tenant" {
+		t.Fatalf("actor = %q, want human:tenant", entry["actor"])
+	}
+	if id, _ := entry["workspace_id"].(string); id == "" {
+		t.Fatalf("workspace_id missing on workspace.create event: %v", entry["workspace_id"])
 	}
 }
 

@@ -41,6 +41,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 	tpl := req.SessionTemplate
 	tpl.Username = req.User
+	tpl.Actor = req.Actor
 	if !req.Ephemeral && req.Name != "" {
 		// For named flows, the spawn.Session's ProjectName drives container
 		// naming and (user, project) keying in state. The eventual

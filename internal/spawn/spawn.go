@@ -15,6 +15,7 @@ import (
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/config"
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/lock"
 	"github.com/podspawn/podspawn/internal/podfile"
 	"github.com/podspawn/podspawn/internal/runtime"
@@ -27,6 +28,9 @@ const containerAgentDir = "/run/ssh-agent"
 
 type Session struct {
 	Username                 string
+	Actor                    identity.Actor        // who is acting in this session; stamped on audit events
+	SessionID                string                // sessions.id; set after CreateSession or on reattach, "" otherwise
+	ContainerID              string                // runtime container id; set on create or reattach
 	ProjectName              string                // empty = default image session
 	Project                  *config.ProjectConfig // nil = use default image
 	UserOverrides            *config.UserOverrides // nil = no per-user overrides
@@ -180,6 +184,23 @@ func (s *Session) labels() map[string]string {
 	}
 }
 
+// subject builds the identity bundle for audit events from the session's
+// current state. WorkspaceID stays empty for default-image / server-mode
+// sessions; SessionID/ContainerID stay empty until the container is created
+// or reattached.
+func (s *Session) subject() audit.Subject {
+	subj := audit.Subject{
+		User:        s.Username,
+		Actor:       s.Actor,
+		SessionID:   s.SessionID,
+		ContainerID: s.ContainerID,
+	}
+	if s.Workspace != nil {
+		subj.WorkspaceID = s.Workspace.ID
+	}
+	return subj
+}
+
 // Ensure creates the container and records it in state, but does not attach
 // or route a session. Used by `podspawn create` to provision machines without
 // opening a shell.
@@ -264,7 +285,9 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 			return "", false, err
 		}
 		slog.Info("reattaching to container", "name", sess.ContainerName, "connections", sess.Connections+1)
-		s.Audit.Connect(s.Username, s.ProjectName, sess.ContainerName, sess.Connections+1)
+		s.SessionID = sess.ID
+		s.ContainerID = sess.ContainerID
+		s.Audit.Connect(s.subject(), s.ProjectName, sess.ContainerName, sess.Connections+1)
 		return sess.ContainerName, false, nil
 	}
 
@@ -335,7 +358,7 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 	if s.Workspace != nil && s.Workspace.ID != "" {
 		workspaceID = sql.NullString{String: s.Workspace.ID, Valid: true}
 	}
-	if err := s.Store.CreateSession(&state.Session{
+	newSess := &state.Session{
 		WorkspaceID:   workspaceID,
 		User:          s.Username,
 		Project:       s.ProjectName,
@@ -350,14 +373,17 @@ func (s *Session) ensureContainerWithState(ctx context.Context) (string, bool, e
 		NetworkID:     networkID,
 		ServiceIDs:    strings.Join(serviceIDs, ","),
 		Mode:          s.Mode,
-	}); err != nil {
+	}
+	if err := s.Store.CreateSession(newSess); err != nil {
 		_ = s.Runtime.RemoveContainer(ctx, containerName)
 		s.cleanupServicesAndNetwork(ctx, serviceIDs, networkID)
 		return "", false, fmt.Errorf("recording session: %w", err)
 	}
+	s.SessionID = newSess.ID
+	s.ContainerID = id
 
-	s.Audit.ContainerCreate(s.Username, s.ProjectName, containerName, image)
-	s.Audit.Connect(s.Username, s.ProjectName, containerName, 1)
+	s.Audit.ContainerCreate(s.subject(), s.ProjectName, containerName, image)
+	s.Audit.Connect(s.subject(), s.ProjectName, containerName, 1)
 	return containerName, true, nil
 }
 
@@ -409,18 +435,20 @@ func (s *Session) routeSession(ctx context.Context, containerName string) (int, 
 	agentEnv := s.prepareAgentForwarding()
 	origCmd := os.Getenv("SSH_ORIGINAL_COMMAND")
 
-	if origCmd != "" {
-		s.Audit.Command(s.Username, s.ProjectName, origCmd)
+	if origCmd == "" {
+		return s.interactiveShell(ctx, containerName, agentEnv)
 	}
 
-	switch {
-	case origCmd == "":
-		return s.interactiveShell(ctx, containerName, agentEnv)
-	case isSFTP(origCmd):
-		return s.execCommand(ctx, containerName, sftpServerPath, agentEnv)
-	default:
-		return s.execCommand(ctx, containerName, origCmd, agentEnv)
+	cmd := origCmd
+	if isSFTP(origCmd) {
+		cmd = sftpServerPath
 	}
+	exitCode, err := s.execCommand(ctx, containerName, cmd, agentEnv)
+	// Single outcome-bearing record, emitted after the command finishes so it
+	// carries the exit code. A command that never returns is consequently not
+	// audited; that trade-off is intentional for Stage 7.
+	s.Audit.Command(s.subject(), s.ProjectName, origCmd, exitCode)
+	return exitCode, err
 }
 
 func isSFTP(cmd string) bool {
@@ -917,7 +945,7 @@ func (s *Session) Disconnect(ctx context.Context) {
 		return
 	}
 
-	s.Audit.Disconnect(s.Username, s.ProjectName, s.containerName(), count)
+	s.Audit.Disconnect(s.subject(), s.ProjectName, s.containerName(), count)
 
 	if count > 0 {
 		slog.Info("session still active", "user", s.Username, "connections", count)
@@ -936,11 +964,13 @@ func (s *Session) Disconnect(ctx context.Context) {
 			return
 		}
 		slog.Info("destroying container", "user", s.Username, "container", sess.ContainerName)
+		s.SessionID = sess.ID
+		s.ContainerID = sess.ContainerID
 		_ = cleanup.DestroySession(ctx, s.Runtime, s.Store, sess)
 		if s.RemoveWorkspaceOnDestroy {
 			s.removeWorkspace()
 		}
-		s.Audit.ContainerDestroy(s.Username, s.ProjectName, sess.ContainerName, "disconnect")
+		s.Audit.ContainerDestroy(s.subject(), s.ProjectName, sess.ContainerName, "disconnect")
 		return
 	}
 

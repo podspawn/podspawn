@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/podfile"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
@@ -98,9 +99,9 @@ func destroySessionByName(ls *localSession, sessionName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := ls.Service.End(ctx, session.Ref{
-		User: ls.Session.Username,
-		Name: sessionName,
+	err := ls.Service.End(ctx, session.EndRequest{
+		Ref:   session.Ref{User: ls.Session.Username, Name: sessionName},
+		Actor: identity.Human(ls.Session.Username),
 	})
 	if err != nil {
 		if errors.Is(err, session.ErrSessionNotFound) {

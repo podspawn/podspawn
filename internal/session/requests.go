@@ -13,6 +13,15 @@ type Ref struct {
 	Name string
 }
 
+// EndRequest carries the target session plus the actor requesting the
+// teardown. The actor is distinct from the session owner: for `podspawn stop`
+// in server mode the requester is generally an operator, not the user the
+// session belongs to. Service.End rejects a request whose Actor is not Valid.
+type EndRequest struct {
+	Ref   Ref
+	Actor identity.Actor
+}
+
 // CreateRequest carries the inputs needed to resolve or create a workspace
 // and configure the session for downstream provisioning. The service mutates
 // SessionTemplate in place; for cmd/run and cmd/shell the same pointer is

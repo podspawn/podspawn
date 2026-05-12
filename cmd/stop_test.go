@@ -3,6 +3,8 @@ package cmd
 import (
 	"os"
 	"testing"
+
+	"github.com/podspawn/podspawn/internal/identity"
 )
 
 func TestResolveStopArgServerMode(t *testing.T) {
@@ -48,6 +50,31 @@ func TestResolveStopArgLocalMode(t *testing.T) {
 			t.Errorf("resolveStopArg(%q) local mode = (%q, %q), want (%q, %q)",
 				tt.arg, user, project, tt.wantUser, tt.wantProject)
 		}
+	}
+}
+
+func TestStopActorOwnSession(t *testing.T) {
+	t.Setenv("USER", "alice")
+	got := stopActor("alice")
+	if got.Kind != identity.KindHuman {
+		t.Fatalf("kind = %q, want human", got.Kind)
+	}
+	if got.String() != "human:alice" {
+		t.Fatalf("actor = %q, want human:alice", got.String())
+	}
+}
+
+func TestStopActorOperatorOnAnotherUsersSession(t *testing.T) {
+	t.Setenv("USER", "root")
+	got := stopActor("alice")
+	if got.Kind != identity.KindOperator {
+		t.Fatalf("kind = %q, want operator", got.Kind)
+	}
+	if got.OSUser != "root" {
+		t.Fatalf("OSUser = %q, want root", got.OSUser)
+	}
+	if got.String() != "operator:root" {
+		t.Fatalf("actor = %q, want operator:root", got.String())
 	}
 }
 

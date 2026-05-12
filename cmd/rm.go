@@ -8,6 +8,7 @@ import (
 
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/cleanup"
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 	"github.com/podspawn/podspawn/internal/ui"
@@ -88,7 +89,11 @@ func removeLocalWorkspace(ctx context.Context, rt runtime.Runtime, store workspa
 	if err := store.DeleteWorkspace(user, name); err != nil {
 		return fmt.Errorf("deleting workspace row: %w", err)
 	}
-	logger.MachineDelete(user, workspace.Name, workspace.Project, workspace.Branch, workspace.WorkspacePath, "rm")
+	logger.WorkspaceDelete(audit.Subject{
+		User:        user,
+		Actor:       identity.Human(user),
+		WorkspaceID: workspace.ID,
+	}, workspace.Name, workspace.Project, workspace.Branch, workspace.WorkspacePath, "rm")
 	return nil
 }
 

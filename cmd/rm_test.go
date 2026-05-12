@@ -214,13 +214,22 @@ func TestRemoveLocalMachineLogsAuditEvent(t *testing.T) {
 	if err := json.Unmarshal(data, &entry); err != nil {
 		t.Fatal(err)
 	}
-	if entry["event"] != "machine.delete" {
-		t.Fatalf("event = %q, want machine.delete", entry["event"])
+	if entry["event"] != "workspace.delete" {
+		t.Fatalf("event = %q, want workspace.delete", entry["event"])
 	}
 	if entry["project"] != "backend" {
 		t.Fatalf("project = %q, want backend", entry["project"])
 	}
 	if entry["branch"] != "main" {
 		t.Fatalf("branch = %q, want main", entry["branch"])
+	}
+	if entry["reason"] != "rm" {
+		t.Fatalf("reason = %q, want rm", entry["reason"])
+	}
+	if entry["actor"] != "human:tenant" {
+		t.Fatalf("actor = %q, want human:tenant", entry["actor"])
+	}
+	if id, _ := entry["workspace_id"].(string); id == "" {
+		t.Fatalf("workspace_id missing on workspace.delete event: %v", entry["workspace_id"])
 	}
 }

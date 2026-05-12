@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/podfile"
 	"github.com/podspawn/podspawn/internal/runtime"
@@ -241,7 +242,11 @@ func (s *Service) setupNamedFlow(ctx context.Context, req CreateRequest) (*state
 		_ = os.RemoveAll(ws.WorkspacePath)
 		return nil, false, fmt.Errorf("recording machine: %w", err)
 	}
-	s.audit.MachineCreate(ws.User, ws.Name, ws.Project, ws.Branch, ws.WorkspacePath)
+	s.audit.WorkspaceCreate(audit.Subject{
+		User:        ws.User,
+		Actor:       req.Actor,
+		WorkspaceID: ws.ID,
+	}, ws.Name, ws.Project, ws.Branch, ws.WorkspacePath)
 	ApplyWorkspaceToTemplate(tpl, ws, false)
 	return ws, true, nil
 }
@@ -323,14 +328,11 @@ func (s *Service) rollbackCreate(tpl *spawn.Session) {
 		return
 	}
 	if tpl.Workspace != nil {
-		s.audit.MachineDelete(
-			tpl.Username,
-			tpl.Workspace.Name,
-			tpl.Workspace.Project,
-			tpl.Workspace.Branch,
-			tpl.Workspace.WorkspacePath,
-			"create_failed",
-		)
+		s.audit.WorkspaceDelete(audit.Subject{
+			User:        tpl.Username,
+			Actor:       tpl.Actor,
+			WorkspaceID: tpl.Workspace.ID,
+		}, tpl.Workspace.Name, tpl.Workspace.Project, tpl.Workspace.Branch, tpl.Workspace.WorkspacePath, "create_failed")
 		_ = s.workspaces.DeleteWorkspace(tpl.Username, tpl.Workspace.Name)
 	}
 	if tpl.WorkspacePath != "" {

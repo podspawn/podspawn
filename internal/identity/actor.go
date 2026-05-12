@@ -42,6 +42,14 @@ func Human(osUser string) Actor {
 	return Actor{Kind: KindHuman, ID: osUser, OSUser: osUser}
 }
 
+// Operator builds the actor for an admin acting on a session they do not own:
+// the OS user running the command, tagged as an operator rather than the
+// session's owner. Used by `podspawn stop` in server mode when the invoking
+// OS user differs from the target session's user.
+func Operator(osUser string) Actor {
+	return Actor{Kind: KindOperator, ID: osUser, OSUser: osUser}
+}
+
 // Valid reports whether the actor is usable: it has a kind and an OS user to
 // project to. It does not check ID, which agent callers populate differently.
 func (a Actor) Valid() bool {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
@@ -49,6 +50,7 @@ var spawnCmd = &cobra.Command{
 
 		sess := &spawn.Session{
 			Username:    user,
+			Actor:       identity.Human(user),
 			ProjectName: project,
 			Runtime:     rt,
 			Image:       cfg.Defaults.Image,

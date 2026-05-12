@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/podspawn/podspawn/internal/audit"
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/state"
@@ -37,16 +40,28 @@ var stopCmd = &cobra.Command{
 			return fmt.Errorf("connecting to docker: %w", err)
 		}
 
+		auditLogger, auditErr := audit.Open(cfg.Log.AuditLog)
+		if auditErr != nil {
+			slog.Warn("failed to open audit log", "error", auditErr)
+		}
+		if auditLogger != nil {
+			defer func() { _ = auditLogger.Close() }()
+		}
+
 		svc := session.New(session.Options{
 			SessionStore:   store,
 			WorkspaceStore: store,
 			Runtime:        rt,
+			Audit:          auditLogger,
 		})
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := svc.End(ctx, session.Ref{User: user, Name: project}); err != nil {
+		if err := svc.End(ctx, session.EndRequest{
+			Ref:   session.Ref{User: user, Name: project},
+			Actor: stopActor(user),
+		}); err != nil {
 			if errors.Is(err, session.ErrSessionNotFound) {
 				return fmt.Errorf("no active machine %q", args[0])
 			}
@@ -66,6 +81,19 @@ func resolveStopArg(arg string) (user, project string) {
 		return os.Getenv("USER"), arg
 	}
 	return arg, ""
+}
+
+// stopActor resolves who is running `podspawn stop`. The invoking OS user is
+// the requester; when it matches the target session's user that's a human
+// acting on their own session, otherwise it's an operator acting on someone
+// else's. The session owner is never substituted for the actor when they
+// differ — that distinction is what makes the audit record meaningful.
+func stopActor(targetUser string) identity.Actor {
+	reqUser := os.Getenv("USER")
+	if reqUser == targetUser {
+		return identity.Human(reqUser)
+	}
+	return identity.Operator(reqUser)
 }
 
 func init() {

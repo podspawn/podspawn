@@ -5,18 +5,55 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/podspawn/podspawn/internal/identity"
 )
 
 const (
-	EventConnect       = "session.connect"
-	EventDisconnect    = "session.disconnect"
-	EventCreate        = "container.create"
-	EventDestroy       = "container.destroy"
-	EventCommand       = "session.command"
-	EventCleanup       = "cleanup.run"
-	EventMachineCreate = "machine.create"
-	EventMachineDelete = "machine.delete"
+	EventConnect         = "session.connect"
+	EventDisconnect      = "session.disconnect"
+	EventCreate          = "container.create"
+	EventDestroy         = "container.destroy"
+	EventCommand         = "session.command"
+	EventCleanup         = "cleanup.run"
+	EventWorkspaceCreate = "workspace.create"
+	EventWorkspaceDelete = "workspace.delete"
 )
+
+// Subject is the identity bundle stamped onto every audit event: the session
+// owner (User, also the in-container OS user), the actor performing the action
+// (Actor), and the workspace / session / container the action touches. It
+// carries identity only; event-specific context like project, container name,
+// image, command, or reason stays as explicit parameters on the typed helpers
+// below so no existing payload key is lost.
+//
+// WorkspaceID / SessionID / ContainerID are omitted from the event when empty:
+// default-image and server-mode sessions have no workspace; the legacy
+// no-state spawn path has no session row.
+type Subject struct {
+	User        string
+	Actor       identity.Actor
+	WorkspaceID string
+	SessionID   string
+	ContainerID string
+}
+
+func (s Subject) attrs() []slog.Attr {
+	a := []slog.Attr{
+		slog.String("actor", s.Actor.String()),
+		slog.String("actor_kind", string(s.Actor.Kind)),
+	}
+	if s.WorkspaceID != "" {
+		a = append(a, slog.String("workspace_id", s.WorkspaceID))
+	}
+	if s.SessionID != "" {
+		a = append(a, slog.String("session_id", s.SessionID))
+	}
+	if s.ContainerID != "" {
+		a = append(a, slog.String("container_id", s.ContainerID))
+	}
+	return a
+}
 
 // Logger writes structured audit events to a JSON-lines file.
 // Safe for concurrent use. Nil Logger is a no-op.
@@ -84,60 +121,70 @@ func (l *Logger) Log(event string, user string, attrs ...slog.Attr) {
 	l.logger.Info("audit", args...)
 }
 
-func (l *Logger) Connect(user, project, container string, connections int) {
-	l.Log(EventConnect, user,
+func (l *Logger) logSubject(event string, s Subject, attrs ...slog.Attr) {
+	l.Log(event, s.User, append(s.attrs(), attrs...)...)
+}
+
+func (l *Logger) Connect(s Subject, project, container string, connections int) {
+	l.logSubject(EventConnect, s,
 		slog.String("project", project),
 		slog.String("container", container),
 		slog.Int("connections", connections),
 	)
 }
 
-func (l *Logger) Disconnect(user, project, container string, remainingConns int) {
-	l.Log(EventDisconnect, user,
+func (l *Logger) Disconnect(s Subject, project, container string, remainingConns int) {
+	l.logSubject(EventDisconnect, s,
 		slog.String("project", project),
 		slog.String("container", container),
 		slog.Int("remaining_connections", remainingConns),
 	)
 }
 
-func (l *Logger) ContainerCreate(user, project, container, image string) {
-	l.Log(EventCreate, user,
+func (l *Logger) ContainerCreate(s Subject, project, container, image string) {
+	l.logSubject(EventCreate, s,
 		slog.String("project", project),
 		slog.String("container", container),
 		slog.String("image", image),
 	)
 }
 
-func (l *Logger) ContainerDestroy(user, project, container, reason string) {
-	l.Log(EventDestroy, user,
+func (l *Logger) ContainerDestroy(s Subject, project, container, reason string) {
+	l.logSubject(EventDestroy, s,
 		slog.String("project", project),
 		slog.String("container", container),
 		slog.String("reason", reason),
 	)
 }
 
-func (l *Logger) Command(user, project, command string) {
-	l.Log(EventCommand, user,
+func (l *Logger) Command(s Subject, project, command string, exitCode int) {
+	outcome := "success"
+	if exitCode != 0 {
+		outcome = "failure"
+	}
+	l.logSubject(EventCommand, s,
 		slog.String("project", project),
 		slog.String("command", command),
+		slog.Int("exit_code", exitCode),
+		slog.String("outcome", outcome),
 	)
 }
 
-func (l *Logger) MachineCreate(user, name, project, branch, workspace string) {
-	l.Log(EventMachineCreate, user,
+func (l *Logger) WorkspaceCreate(s Subject, name, project, branch, workspacePath string) {
+	l.logSubject(EventWorkspaceCreate, s,
 		slog.String("name", name),
 		slog.String("project", project),
 		slog.String("branch", branch),
-		slog.String("workspace", workspace),
+		slog.String("workspace", workspacePath),
 	)
 }
 
-func (l *Logger) MachineDelete(user, name, project, branch, workspace, reason string) {
-	l.Log(EventMachineDelete, user,
+func (l *Logger) WorkspaceDelete(s Subject, name, project, branch, workspacePath, reason string) {
+	l.logSubject(EventWorkspaceDelete, s,
 		slog.String("name", name),
 		slog.String("project", project),
 		slog.String("branch", branch),
-		slog.String("workspace", workspace),
+		slog.String("workspace", workspacePath),
 		slog.String("reason", reason),
 	)
 }
