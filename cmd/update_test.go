@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -65,7 +65,7 @@ func TestInstallBinaryWritableDir(t *testing.T) {
 	}
 }
 
-func TestInstallBinaryReadOnlyDirNeedsSudo(t *testing.T) {
+func TestInstallBinaryReadOnlyDirDelegatesToElevated(t *testing.T) {
 	dir := t.TempDir()
 
 	src := filepath.Join(dir, "new-binary")
@@ -73,7 +73,7 @@ func TestInstallBinaryReadOnlyDirNeedsSudo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a read-only subdirectory to simulate /usr/local/bin
+	// Read-only subdirectory standing in for /usr/local/bin
 	protectedDir := filepath.Join(dir, "protected")
 	if err := os.Mkdir(protectedDir, 0555); err != nil {
 		t.Fatal(err)
@@ -86,20 +86,52 @@ func TestInstallBinaryReadOnlyDirNeedsSudo(t *testing.T) {
 		t.Skip("can't create read-only dir (running as root?)")
 	}
 
-	err := installBinary(src, dst)
-	if err == nil {
-		// sudo worked (e.g. CI with passwordless sudo), verify the binary landed
-		data, readErr := os.ReadFile(dst)
-		if readErr != nil {
-			t.Fatal("installBinary succeeded but binary missing:", readErr)
-		}
-		if string(data) != "new content" {
-			t.Errorf("binary content mismatch, got %q", string(data))
-		}
-		return
+	var gotSrc, gotDst string
+	calls := 0
+	orig := elevatedInstall
+	elevatedInstall = func(s, d string) error {
+		calls++
+		gotSrc, gotDst = s, d
+		return nil
 	}
-	// sudo failed (local dev without passwordless sudo), verify error message
-	if !strings.Contains(err.Error(), "sudo cp failed") {
-		t.Errorf("expected sudo-related error, got: %s", err)
+	t.Cleanup(func() { elevatedInstall = orig })
+
+	if err := installBinary(src, dst); err != nil {
+		t.Fatalf("installBinary returned %v, want nil", err)
+	}
+	if calls != 1 {
+		t.Fatalf("elevatedInstall called %d times, want 1", calls)
+	}
+	if gotSrc != src || gotDst != dst {
+		t.Errorf("elevatedInstall got (%q, %q), want (%q, %q)", gotSrc, gotDst, src, dst)
+	}
+}
+
+func TestInstallBinaryPropagatesElevatedError(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "new-binary")
+	if err := os.WriteFile(src, []byte("new content"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	protectedDir := filepath.Join(dir, "protected")
+	if err := os.Mkdir(protectedDir, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(protectedDir, 0755) })
+
+	if dirWritable(protectedDir) {
+		t.Skip("can't create read-only dir (running as root?)")
+	}
+
+	sentinel := errors.New("no askpass, no tty")
+	orig := elevatedInstall
+	elevatedInstall = func(string, string) error { return sentinel }
+	t.Cleanup(func() { elevatedInstall = orig })
+
+	err := installBinary(src, filepath.Join(protectedDir, "podspawn"))
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("installBinary returned %v, want it to wrap %v", err, sentinel)
 	}
 }

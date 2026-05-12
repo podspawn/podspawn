@@ -156,6 +156,13 @@ func installBinary(src, dst string) error {
 		return nil
 	}
 
+	return elevatedInstall(src, dst)
+}
+
+// elevatedInstall copies src over dst with root privileges. It's the fallback
+// when the destination directory isn't writable by the current user. A package
+// var so tests can swap it out instead of invoking real sudo.
+var elevatedInstall = func(src, dst string) error {
 	fmt.Println("installing to protected directory, requesting sudo...")
 	if err := exec.Command("sudo", "cp", src, dst).Run(); err != nil {
 		return fmt.Errorf("sudo cp failed (run manually with: sudo cp %s %s): %w", src, dst, err)

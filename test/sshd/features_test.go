@@ -44,12 +44,6 @@ func TestSFTPRoundTrip(t *testing.T) {
 
 	client := h.Dial(t, "sftp-user")
 
-	// Install sftp-server in the user's container (ubuntu:24.04 doesn't include it)
-	_, _, exitCode := RunCommand(t, client, "sudo apt-get update -qq && sudo apt-get install -y -qq openssh-sftp-server >/dev/null 2>&1")
-	if exitCode != 0 {
-		t.Skip("could not install openssh-sftp-server in container")
-	}
-
 	sc := SFTPClient(t, client)
 
 	content := []byte("podspawn sftp test payload")
@@ -116,12 +110,6 @@ func TestLargeFileTransfer(t *testing.T) {
 	h.AddUser(t, "large-user")
 
 	client := h.Dial(t, "large-user")
-
-	// Install sftp-server in the user's container
-	_, _, exitCode := RunCommand(t, client, "sudo apt-get update -qq && sudo apt-get install -y -qq openssh-sftp-server >/dev/null 2>&1")
-	if exitCode != 0 {
-		t.Skip("could not install openssh-sftp-server in container")
-	}
 
 	sc := SFTPClient(t, client)
 

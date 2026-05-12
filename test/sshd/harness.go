@@ -24,6 +24,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const workloadImageTag = "podspawn-test-workload:latest"
+
 type SSHHarness struct {
 	Host       string
 	Port       int
@@ -48,6 +50,10 @@ func SetupHarness() (*SSHHarness, error) {
 	}
 
 	if err := buildBinary(); err != nil {
+		return nil, err
+	}
+
+	if err := buildWorkloadImage(); err != nil {
 		return nil, err
 	}
 
@@ -262,6 +268,21 @@ func buildBinary() error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("building podspawn binary: %w\n%s", err, output)
+	}
+	return nil
+}
+
+// buildWorkloadImage builds the image that spawned session containers run.
+// It's plain ubuntu:24.04 plus openssh-sftp-server (the base image ships no
+// sftp-server binary, which podspawn execs for SFTP sessions). Docker's layer
+// cache makes repeat builds, including across the test-sshd-all distro loop,
+// near-instant. The image is built on the host so the sibling containers the
+// harness spawns over the mounted docker socket can see it.
+func buildWorkloadImage() error {
+	dir := filepath.Join(testdataDir(), "workload")
+	cmd := exec.Command("docker", "build", "-t", workloadImageTag, "-f", filepath.Join(dir, "Dockerfile"), dir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("building workload image: %w\n%s", err, output)
 	}
 	return nil
 }

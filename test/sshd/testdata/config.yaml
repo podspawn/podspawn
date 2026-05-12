@@ -1,7 +1,7 @@
 auth:
   key_dir: /etc/podspawn/keys
 defaults:
-  image: ubuntu:24.04
+  image: podspawn-test-workload:latest
   shell: /bin/bash
   cpus: 1.0
   memory: "256m"
