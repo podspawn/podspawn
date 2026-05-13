@@ -57,7 +57,7 @@ jobs:
         run: make build
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.0
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Unit tests
         run: gotestsum --junitfile junit-unit.xml -- -race -count=1 -shuffle=on ./...
@@ -96,7 +96,7 @@ jobs:
         run: make build
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.0
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       # Untagged tests only - integration/sshd require Docker, which isn't
       # guaranteed on Blacksmith macOS runners. Adjust once that's verified.
@@ -124,7 +124,7 @@ jobs:
         run: docker pull ubuntu:24.04
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.0
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Integration tests
         run: gotestsum --junitfile junit-integration.xml -- -race -tags integration ./internal/runtime/ -timeout 120s
@@ -190,7 +190,7 @@ jobs:
           wait
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.0
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: SSHD integration tests (${{ matrix.distro }}/${{ matrix.arch }})
         env:

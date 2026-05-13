@@ -12,7 +12,7 @@ test:
 	go test -count=1 ./...
 
 test-junit:
-	@command -v gotestsum >/dev/null || go install gotest.tools/gotestsum@v1.12.0
+	@command -v gotestsum >/dev/null || go install gotest.tools/gotestsum@v1.13.0
 	gotestsum --junitfile junit.xml -- -race -count=1 -shuffle=on ./...
 
 test-integration:
