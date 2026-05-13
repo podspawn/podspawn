@@ -18,6 +18,7 @@ const (
 	EventCleanup         = "cleanup.run"
 	EventWorkspaceCreate = "workspace.create"
 	EventWorkspaceDelete = "workspace.delete"
+	EventPolicyDeny      = "policy.deny"
 )
 
 // Subject is the identity bundle stamped onto every audit event: the session
@@ -185,6 +186,16 @@ func (l *Logger) WorkspaceDelete(s Subject, name, project, branch, workspacePath
 		slog.String("project", project),
 		slog.String("branch", branch),
 		slog.String("workspace", workspacePath),
+		slog.String("reason", reason),
+	)
+}
+
+// PolicyDeny records a Stage 8 deny decision. Reason is whatever the
+// Policy.Evaluate result carried; the typed PolicyError surfaces the
+// same string back to the caller for CLI-visible error text.
+func (l *Logger) PolicyDeny(s Subject, op, reason string) {
+	l.logSubject(EventPolicyDeny, s,
+		slog.String("op", op),
 		slog.String("reason", reason),
 	)
 }

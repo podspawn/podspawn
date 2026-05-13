@@ -337,6 +337,62 @@ func TestWorkspaceEventsKeepPayloadKeys(t *testing.T) {
 	}
 }
 
+func TestPolicyDenyEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	logger, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.PolicyDeny(Subject{
+		User:        "alice",
+		Actor:       identity.Operator("root"),
+		WorkspaceID: "ws-42",
+		SessionID:   "sess-42",
+		ContainerID: "ctr-42",
+	}, "workspace.remove", "owner mismatch")
+	_ = logger.Close()
+
+	entry := readSingle(t, path)
+	if entry["event"] != EventPolicyDeny {
+		t.Errorf("event = %q, want %q", entry["event"], EventPolicyDeny)
+	}
+	if entry["user"] != "alice" {
+		t.Errorf("user = %q, want alice", entry["user"])
+	}
+	if entry["actor"] != "operator:root" {
+		t.Errorf("actor = %q, want operator:root", entry["actor"])
+	}
+	if entry["actor_kind"] != "operator" {
+		t.Errorf("actor_kind = %q, want operator", entry["actor_kind"])
+	}
+	if entry["op"] != "workspace.remove" {
+		t.Errorf("op = %q, want workspace.remove", entry["op"])
+	}
+	if entry["reason"] != "owner mismatch" {
+		t.Errorf("reason = %q, want owner mismatch", entry["reason"])
+	}
+	if entry["workspace_id"] != "ws-42" || entry["session_id"] != "sess-42" || entry["container_id"] != "ctr-42" {
+		t.Errorf("identity ids missing: ws=%v sess=%v ctr=%v", entry["workspace_id"], entry["session_id"], entry["container_id"])
+	}
+}
+
+func TestPolicyDenyEmptyIdsOmitted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	logger, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.PolicyDeny(Subject{User: "alice", Actor: identity.Human("alice")}, "session.create", "no agents")
+	_ = logger.Close()
+
+	entry := readSingle(t, path)
+	for _, k := range []string{"workspace_id", "session_id", "container_id"} {
+		if _, present := entry[k]; present {
+			t.Errorf("%s should be omitted when empty, got %v", k, entry[k])
+		}
+	}
+}
+
 func readSingle(t *testing.T, path string) map[string]any {
 	t.Helper()
 	data, err := os.ReadFile(path)
