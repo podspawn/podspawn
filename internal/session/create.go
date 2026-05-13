@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/spawn"
 )
 
@@ -37,6 +38,19 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 	if req.Actor.OSUser != req.User {
 		return nil, fmt.Errorf("%w: Actor.OSUser %q != User %q", ErrInvalidRequest, req.Actor.OSUser, req.User)
+	}
+
+	// Stage 8 coarse gate: fires with only what the request inherently
+	// carries. The flow helpers below still own ErrUnsafeTransition
+	// enforcement on preserved-workspace / active-session collisions —
+	// policy is not the place to re-implement flow rules.
+	if err := s.Authorize(ctx, policy.Request{
+		Op:              policy.OpSessionCreate,
+		Actor:           req.Actor,
+		OwnerUser:       req.User,
+		RequestedBranch: req.Branch,
+	}); err != nil {
+		return nil, err
 	}
 
 	tpl := req.SessionTemplate

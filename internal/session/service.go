@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/podspawn/podspawn/internal/audit"
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -30,6 +31,7 @@ type Service struct {
 	rt             runtime.Runtime
 	audit          *audit.Logger
 	lifecycle      Lifecycle
+	policy         policy.Policy
 	projectsFile   string
 	workspacesRoot string
 	now            func() time.Time
@@ -51,6 +53,11 @@ type Options struct {
 	// Lifecycle is the container-driving seam. nil → newDefaultLifecycle,
 	// which delegates to spawn.Session.{Ensure,Disconnect} via cleanup.
 	Lifecycle Lifecycle
+
+	// Policy is the Stage 8 deny-only decision point. nil → policy.AllowAll{},
+	// which preserves pre-Stage-8 behavior. Tests inject deny-stubs here to
+	// exercise the gate without touching production cmd code.
+	Policy policy.Policy
 
 	// ProjectsFile is the path to projects.yaml. Required for project-backed
 	// Create requests; left empty for pure default-image flows.
@@ -77,12 +84,17 @@ func New(opts Options) *Service {
 	if clock == nil {
 		clock = time.Now
 	}
+	pol := opts.Policy
+	if pol == nil {
+		pol = policy.AllowAll{}
+	}
 	return &Service{
 		sessions:       opts.SessionStore,
 		workspaces:     opts.WorkspaceStore,
 		rt:             opts.Runtime,
 		audit:          opts.Audit,
 		lifecycle:      lc,
+		policy:         pol,
 		projectsFile:   opts.ProjectsFile,
 		workspacesRoot: opts.WorkspacesRoot,
 		now:            clock,

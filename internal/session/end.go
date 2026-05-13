@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/podspawn/podspawn/internal/audit"
+	"github.com/podspawn/podspawn/internal/policy"
 )
 
 // End stops a live session. Mirrors the current `podspawn stop` and
@@ -33,6 +34,18 @@ func (s *Service) End(ctx context.Context, req EndRequest) error {
 	}
 	if sess == nil {
 		return ErrSessionNotFound
+	}
+	// Stage 8 gate: the existing session lookup already produced sess;
+	// the gate consumes it. No new lookup, no new failure path under
+	// the AllowAll default.
+	if err := s.Authorize(ctx, policy.Request{
+		Op:          policy.OpSessionEnd,
+		Actor:       req.Actor,
+		OwnerUser:   sess.User,
+		Session:     sess,
+		ContainerID: sess.ContainerID,
+	}); err != nil {
+		return err
 	}
 	if err := s.lifecycle.Stop(ctx, StopParams{
 		Runtime: s.rt,

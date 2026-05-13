@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/podspawn/podspawn/internal/identity"
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/spawn"
 	"github.com/podspawn/podspawn/internal/state"
 )
@@ -244,6 +245,64 @@ func TestCreateRunsProvisionWhenRequested(t *testing.T) {
 // cleanupNewMachineOnFailure contract: when the freshly-created workspace
 // fails to provision for a non-hook reason, the row and host directory are
 // removed.
+// countingWorkspaceStore lets the coarse-gate test assert that Create
+// returns ErrPolicyDenied without ever reading the workspace registry.
+// It wraps the FakeStore and counts GetWorkspace calls.
+type countingWorkspaceStore struct {
+	state.WorkspaceStore
+	state.SessionStore
+	getCalls int
+}
+
+func (c *countingWorkspaceStore) GetWorkspace(user, name string) (*state.Workspace, error) {
+	c.getCalls++
+	return c.WorkspaceStore.GetWorkspace(user, name)
+}
+
+func TestCreateGateIsCoarseAndDeniesBeforeAnyLookup(t *testing.T) {
+	base := state.NewFakeStore()
+	store := &countingWorkspaceStore{WorkspaceStore: base, SessionStore: base}
+	lc := &fakeLifecycle{}
+	stub := &fakePolicy{decision: policy.Decision{Allow: false, Reason: "no creates today"}}
+	svc := New(Options{
+		SessionStore:   store,
+		WorkspaceStore: store,
+		Lifecycle:      lc,
+		Policy:         stub,
+	})
+
+	_, err := svc.Create(context.Background(), CreateRequest{
+		User:            "tenant",
+		Actor:           identity.Human("tenant"),
+		Name:            "auth-fix",
+		ProjectName:     "backend",
+		Branch:          "feat/x",
+		Provision:       true,
+		SessionTemplate: &spawn.Session{Username: "tenant"},
+	})
+	if !errors.Is(err, policy.ErrPolicyDenied) {
+		t.Fatalf("Create error = %v, want ErrPolicyDenied", err)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("policy calls = %d, want 1", stub.calls)
+	}
+	if stub.captured.Op != policy.OpSessionCreate {
+		t.Errorf("op = %q, want %q", stub.captured.Op, policy.OpSessionCreate)
+	}
+	if stub.captured.RequestedBranch != "feat/x" {
+		t.Errorf("RequestedBranch = %q, want feat/x", stub.captured.RequestedBranch)
+	}
+	if stub.captured.Workspace != nil || stub.captured.Session != nil {
+		t.Errorf("coarse gate must not carry workspace/session context: %+v", stub.captured)
+	}
+	if store.getCalls != 0 {
+		t.Errorf("GetWorkspace called %d times pre-deny; coarse gate must not read", store.getCalls)
+	}
+	if lc.provisionCalls != 0 {
+		t.Errorf("Provision called on deny: calls=%d", lc.provisionCalls)
+	}
+}
+
 func TestCreateRollsBackOnNonHookProvisionFailure(t *testing.T) {
 	store := state.NewFakeStore()
 	lc := &fakeLifecycle{provisionErr: errors.New("boom")}

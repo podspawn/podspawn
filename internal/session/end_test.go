@@ -12,6 +12,7 @@ import (
 
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/identity"
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/state"
 )
 
@@ -199,6 +200,78 @@ func TestEndRejectsMissingUser(t *testing.T) {
 	err := svc.End(context.Background(), EndRequest{Ref: Ref{Name: "anything"}, Actor: identity.Human("tenant")})
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("End error = %v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestEndDeniesAfterLookupWithSessionContext(t *testing.T) {
+	store := state.NewFakeStore()
+	lc := &fakeLifecycle{}
+	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	logger, err := audit.Open(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &fakePolicy{decision: policy.Decision{Allow: false, Reason: "agents may not stop sessions"}}
+	svc := New(Options{
+		SessionStore:   store,
+		WorkspaceStore: store,
+		Lifecycle:      lc,
+		Audit:          logger,
+		Policy:         stub,
+	})
+
+	if err := store.CreateSession(&state.Session{
+		User:          "bob",
+		Project:       "backend",
+		ContainerID:   "ctr-7",
+		ContainerName: "podspawn-bob-backend",
+		WorkspaceID:   sql.NullString{String: "ws-7", Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.End(context.Background(), EndRequest{
+		Ref:   Ref{User: "bob", Name: "backend"},
+		Actor: identity.Operator("root"),
+	})
+	_ = logger.Close()
+
+	if !errors.Is(err, policy.ErrPolicyDenied) {
+		t.Fatalf("End error = %v, want ErrPolicyDenied", err)
+	}
+	if lc.stopCalls != 0 {
+		t.Errorf("Lifecycle.Stop called %d times on deny; want 0", lc.stopCalls)
+	}
+	if stub.captured.Op != policy.OpSessionEnd {
+		t.Errorf("op = %q, want %q", stub.captured.Op, policy.OpSessionEnd)
+	}
+	if stub.captured.Session == nil || stub.captured.Session.ContainerID != "ctr-7" {
+		t.Errorf("gate did not see live session: %+v", stub.captured.Session)
+	}
+	if stub.captured.ContainerID != "ctr-7" {
+		t.Errorf("ContainerID = %q, want ctr-7", stub.captured.ContainerID)
+	}
+	if stub.captured.OwnerUser != "bob" {
+		t.Errorf("OwnerUser = %q, want bob", stub.captured.OwnerUser)
+	}
+
+	data, _ := os.ReadFile(auditPath)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly 1 audit line (policy.deny, no container.destroy), got %d: %q", len(lines), string(data))
+	}
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["event"] != audit.EventPolicyDeny {
+		t.Errorf("event = %q, want %q", entry["event"], audit.EventPolicyDeny)
+	}
+
+	// Session row must survive the deny: cleanup is Stop's job and Stop
+	// was never reached.
+	if got, _ := store.GetSession("bob", "backend"); got == nil {
+		t.Error("session row removed on deny; Stop must not have been called")
 	}
 }
 
