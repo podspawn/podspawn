@@ -60,6 +60,13 @@ var runCmd = &cobra.Command{
 			}
 			// Guardrail: Attach() is permitted in cmd/run.go.
 			attachSession = res.Attach()
+		} else {
+			// Default-image run does not go through Service.Create, so
+			// fire the OpSessionCreate gate inline. Without this, the
+			// default-image path silently bypasses Stage 8.
+			if err := gateLocalCreate(context.Background(), ls); err != nil {
+				return err
+			}
 		}
 
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")

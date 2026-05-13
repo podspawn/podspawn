@@ -138,6 +138,14 @@ func runDev(cmd *cobra.Command, args []string) error {
 		_ = os.Unsetenv("SSH_ORIGINAL_COMMAND")
 	}
 
+	// podspawn dev never goes through Service.Create — it calls
+	// RunAndCleanup directly. Fire the OpSessionCreate gate inline
+	// before any banner / RunAndCleanup work so denial returns fast
+	// and the typed *PolicyError reaches the CLI intact.
+	if err := gateLocalCreate(context.Background(), ls); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 
 	// Check if re-attaching and print banner before entering the shell

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
 	"github.com/podspawn/podspawn/internal/identity"
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/spawn"
@@ -139,4 +141,22 @@ func localWorkspacesRoot() string {
 
 func ensureLocalWorkspaceRoot(root string) error {
 	return os.MkdirAll(root, 0700)
+}
+
+// gateLocalCreate runs the Stage 8 OpSessionCreate gate for local
+// create-and-attach flows that do not route through Service.Create:
+// `podspawn dev`, and `podspawn run` without --project. Mirrors the
+// coarse-gate shape Service.Create's gate uses (no Workspace/Session
+// in the request — these paths do not bind to a workspace registry
+// row). Returned error is bare so the typed *PolicyError, with its
+// embedded reason, reaches the CLI intact.
+func gateLocalCreate(ctx context.Context, ls *localSession) error {
+	if ls == nil || ls.Service == nil {
+		return nil
+	}
+	return ls.Service.Authorize(ctx, policy.Request{
+		Op:        policy.OpSessionCreate,
+		Actor:     ls.Session.Actor,
+		OwnerUser: ls.Session.Username,
+	})
 }
