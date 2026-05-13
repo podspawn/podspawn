@@ -3,13 +3,17 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 LDFLAGS := -ldflags "-X github.com/podspawn/podspawn/cmd.Version=$(VERSION) -X github.com/podspawn/podspawn/cmd.Commit=$(COMMIT)"
 
-.PHONY: build test test-integration test-sshd test-sshd-all lint clean install hooks
+.PHONY: build test test-junit test-integration test-sshd test-sshd-all lint clean install hooks
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) .
 
 test:
 	go test -count=1 ./...
+
+test-junit:
+	@command -v gotestsum >/dev/null || go install gotest.tools/gotestsum@v1.12.0
+	gotestsum --junitfile junit.xml -- -race -count=1 -shuffle=on ./...
 
 test-integration:
 	go test -v -race -tags integration ./internal/runtime/ -timeout 120s

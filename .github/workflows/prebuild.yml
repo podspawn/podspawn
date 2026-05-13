@@ -11,6 +11,12 @@ on:
 # Reusable template for repo owners who want to prebuild their Podfile images
 # on push. Copy this workflow to your repo and adjust the paths filter.
 #
+# REQUIRES a Blacksmith runner for the colocated cache. On GitHub-hosted
+# runners, swap:
+#   runs-on: ubuntu-latest
+# (the Blacksmith layer cache from setup-docker-builder is irrelevant here -
+# see the note on the prebuild step below.)
+#
 # Usage in your repo:
 #   on:
 #     push:
@@ -28,12 +34,15 @@ jobs:
   prebuild:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+      # podspawn prebuild detects `docker buildx` and routes through it when
+      # available (internal/runtime/docker_buildx.go). This step registers a
+      # Blacksmith remote builder as the active buildx context so the build
+      # uses Blacksmith's persistent layer cache.
+      - uses: useblacksmith/setup-docker-builder@a592b831ebb20e68f7cf47329cf2c3c67b8a7655  # v1
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -45,13 +54,17 @@ jobs:
           sudo mv podspawn /usr/local/bin/
 
       - name: Build and tag image
+        env:
+          PODFILE: ${{ github.event.inputs.podfile }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
         run: |
-          PODFILE="${{ github.event.inputs.podfile }}"
           if [ -z "$PODFILE" ]; then
-            podspawn prebuild --tag ghcr.io/${{ github.repository }}:${{ github.sha }}
+            podspawn prebuild --tag "$IMAGE"
           else
-            podspawn prebuild --podfile "$PODFILE" --tag ghcr.io/${{ github.repository }}:${{ github.sha }}
+            podspawn prebuild --podfile "$PODFILE" --tag "$IMAGE"
           fi
 
       - name: Push image
-        run: docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+        run: docker push "$IMAGE"

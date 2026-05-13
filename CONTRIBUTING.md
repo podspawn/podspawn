@@ -58,6 +58,16 @@ internal/
 test/sshd/        # Full SSH pipeline integration tests
 ```
 
+## CI
+
+Workflows run on Blacksmith runners (`runs-on: blacksmith-*`). Two things to know:
+
+1. **The Blacksmith GitHub App must be installed on this repository** for capacity provisioning to work. Without it, jobs requesting `runs-on: blacksmith-*` will queue while runners are routed to sibling repos in the org. This is the failure mode most commonly mistaken for a hung run.
+
+2. **Job DAG:** `lint` runs first and warms the Go module cache for all build tags. The downstream jobs (`unit-test`, `macos-build`, `integration`, `sshd-integration` matrix) parallelize behind it. If a PR is in draft mode, all jobs skip.
+
+The Blacksmith dashboard (app.blacksmith.sh) shows per-step timing, cache hit rates, and aggregated test analytics across runs.
+
 ## Pull request process
 
 1. Branch from `main`
@@ -65,7 +75,7 @@ test/sshd/        # Full SSH pipeline integration tests
 3. `make test && make lint` must pass
 4. Signed commits required (`git config commit.gpgsign true`)
 5. Linear history (no merge commits)
-6. CI must pass (unit + integration + sshd across 4 distros)
+6. CI must pass: `lint`, `unit-test`, `macos-build`, `integration`, `sshd-integration (ubuntu|debian|rocky|alpine|ubuntu-arm64)`
 
 ## What's valued
 
