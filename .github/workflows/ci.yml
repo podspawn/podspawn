@@ -5,14 +5,50 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
-  build:
+  lint:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Compile every package under all build tags so the module cache picks up
+      # tag-gated deps (pkg/sftp, testcontainers, x/crypto). Without this, the
+      # setup-go cache restored by integration/sshd-integration jobs is missing
+      # those modules and every shard re-fetches them from proxy.golang.org -
+      # which is exactly how run 25823286159 hit an HTTP/2 INTERNAL_ERROR.
+      - name: Warm module cache (all build tags)
+        run: |
+          go mod download
+          go test -run='^$' -count=1 -tags 'integration sshd' ./... > /dev/null
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.10.1
+
+  unit-test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: lint
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -20,21 +56,66 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.10.1
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
 
       - name: Unit tests
-        run: go test -race -count=1 ./...
+        run: gotestsum --junitfile junit-unit.xml -- -race -count=1 -shuffle=on ./...
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit
+          path: junit-unit.xml
+
+      - name: Capture diagnostics on failure
+        if: failure()
+        run: |
+          echo "::group::docker ps"
+          docker ps -a || true
+          echo "::endgroup::"
+          echo "::group::disk"
+          df -h
+          echo "::endgroup::"
+          echo "::group::memory"
+          free -h
+          echo "::endgroup::"
+
+  macos-build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: lint
+    runs-on: blacksmith-6vcpu-macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: make build
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
+
+      # Untagged tests only - integration/sshd require Docker, which isn't
+      # guaranteed on Blacksmith macOS runners. Adjust once that's verified.
+      - name: Unit tests
+        run: gotestsum --junitfile junit-macos.xml -- -race -count=1 ./...
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-macos
+          path: junit-macos.xml
 
   integration:
-    needs: build
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: lint
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -42,28 +123,95 @@ jobs:
       - name: Pull test images
         run: docker pull ubuntu:24.04
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
+
       - name: Integration tests
-        run: go test -v -race -tags integration ./internal/runtime/ -timeout 120s
+        run: gotestsum --junitfile junit-integration.xml -- -race -tags integration ./internal/runtime/ -timeout 120s
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration
+          path: junit-integration.xml
+
+      - name: Capture diagnostics on failure
+        if: failure()
+        run: |
+          echo "::group::docker ps"
+          docker ps -a || true
+          echo "::endgroup::"
+          echo "::group::disk"
+          df -h
+          echo "::endgroup::"
+          echo "::group::memory"
+          free -h
+          echo "::endgroup::"
 
   sshd-integration:
-    needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    name: sshd-integration (${{ matrix.distro }}/${{ matrix.arch }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: lint
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu, debian, rocky, alpine]
+        include:
+          - distro: ubuntu
+            runner: blacksmith-4vcpu-ubuntu-2404
+            arch: amd64
+          - distro: debian
+            runner: blacksmith-4vcpu-ubuntu-2404
+            arch: amd64
+          - distro: rocky
+            runner: blacksmith-4vcpu-ubuntu-2404
+            arch: amd64
+          - distro: alpine
+            runner: blacksmith-4vcpu-ubuntu-2404
+            arch: amd64
+          - distro: ubuntu
+            runner: blacksmith-4vcpu-ubuntu-2404-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v6
-
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
+      # All distro base images that test/sshd/testdata/Dockerfile* references.
+      # Parallel pulls so we don't pay for serial network latency.
       - name: Pull test images
-        run: docker pull ubuntu:24.04
+        run: |
+          docker pull ubuntu:24.04 &
+          docker pull debian:12 &
+          docker pull rockylinux:9 &
+          docker pull alpine:3.20 &
+          wait
 
-      - name: SSHD integration tests (${{ matrix.distro }})
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
+
+      - name: SSHD integration tests (${{ matrix.distro }}/${{ matrix.arch }})
         env:
           PODSPAWN_TEST_DISTRO: ${{ matrix.distro }}
-        run: go test -v -race -tags sshd ./test/sshd/ -timeout 300s
+        run: gotestsum --junitfile junit-sshd.xml -- -race -tags sshd ./test/sshd/ -timeout 300s
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-sshd-${{ matrix.distro }}-${{ matrix.arch }}
+          path: junit-sshd.xml
+
+      - name: Capture diagnostics on failure
+        if: failure()
+        run: |
+          echo "::group::docker ps"
+          docker ps -a || true
+          echo "::endgroup::"
+          echo "::group::disk"
+          df -h
+          echo "::endgroup::"
+          echo "::group::memory"
+          free -h
+          echo "::endgroup::"

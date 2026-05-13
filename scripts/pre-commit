@@ -23,6 +23,15 @@ else
     echo "  (golangci-lint not installed, skipping)"
 fi
 
+if [ -d .github/workflows ]; then
+    echo "pre-commit: actionlint..."
+    if command -v actionlint >/dev/null 2>&1; then
+        actionlint
+    else
+        echo "  (actionlint not installed, skipping - install via brew install actionlint)"
+    fi
+fi
+
 echo "pre-commit: testing..."
 go test -count=1 ./...
 

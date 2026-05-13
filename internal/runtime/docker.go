@@ -22,7 +22,8 @@ import (
 )
 
 type DockerRuntime struct {
-	cli *client.Client
+	cli    *client.Client
+	buildx bool
 }
 
 var _ Runtime = (*DockerRuntime)(nil)
@@ -32,7 +33,7 @@ func NewDockerRuntime() (*DockerRuntime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connecting to docker: %w", err)
 	}
-	return &DockerRuntime{cli: cli}, nil
+	return &DockerRuntime{cli: cli, buildx: hasBuildx()}, nil
 }
 
 func (d *DockerRuntime) Close() error {
@@ -266,6 +267,11 @@ func (d *DockerRuntime) ImageExists(ctx context.Context, ref string) (bool, erro
 }
 
 func (d *DockerRuntime) BuildImage(ctx context.Context, buildCtx io.Reader, tag string) error {
+	if d.buildx {
+		slog.Debug("building via buildx", "tag", tag)
+		return buildImageBuildx(ctx, buildCtx, tag)
+	}
+	slog.Debug("building via docker sdk (classic builder)", "tag", tag)
 	resp, err := d.cli.ImageBuild(ctx, buildCtx, build.ImageBuildOptions{
 		Tags:        []string{tag},
 		Remove:      true,
