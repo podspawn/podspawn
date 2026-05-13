@@ -40,9 +40,9 @@ jobs:
       # available (internal/runtime/docker_buildx.go). This step registers a
       # Blacksmith remote builder as the active buildx context so the build
       # uses Blacksmith's persistent layer cache.
-      - uses: useblacksmith/setup-docker-builder@a592b831ebb20e68f7cf47329cf2c3c67b8a7655  # v1
+      - uses: useblacksmith/setup-docker-builder@722e97d12b1d06a961800dd6c05d79d951ad3c80  # v1
 
-      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
