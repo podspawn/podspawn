@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -28,9 +29,16 @@ var shellCmd = &cobra.Command{
 		}
 		defer ls.Close()
 
+		// Capture the invoker before we (maybe) overwrite Username with the
+		// cross-user target. buildLocalSession seeded Username + Actor from
+		// the invoking OS user; for `shell alice@backend` the owner becomes
+		// alice while the actor must stay the invoker — as an operator,
+		// since they are acting on someone else's session.
+		invoker := ls.Session.Username
 		if user != "" {
 			ls.Session.Username = user
 		}
+		ls.Session.Actor = shellActor(invoker, user)
 
 		if isLocalMode {
 			res, err := ls.Service.Inspect(context.Background(), session.Ref{
@@ -66,6 +74,19 @@ func parseShellTarget(target string) (user, project string) {
 		return u, p
 	}
 	return "", target
+}
+
+// shellActor resolves who is running `podspawn shell`. `invoker` is the
+// process's OS user (the session's pre-parse Username); `target` is the
+// user@ prefix if one was supplied, "" otherwise. When the target differs
+// from the invoker, the requester is an operator acting on someone else's
+// session; otherwise it's a human acting on their own. The target user is
+// never substituted for the actor.
+func shellActor(invoker, target string) identity.Actor {
+	if target == "" || target == invoker {
+		return identity.Human(invoker)
+	}
+	return identity.Operator(invoker)
 }
 
 func init() {

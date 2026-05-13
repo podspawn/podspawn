@@ -9,6 +9,7 @@ import (
 
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/config"
+	"github.com/podspawn/podspawn/internal/identity"
 	"github.com/podspawn/podspawn/internal/runtime"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/spawn"
@@ -56,6 +57,7 @@ func buildLocalSession(name string) (*localSession, error) {
 
 	sess := &spawn.Session{
 		Username:       user,
+		Actor:          identity.Human(user),
 		ProjectName:    name,
 		Runtime:        rt,
 		Image:          cfg.Defaults.Image,
