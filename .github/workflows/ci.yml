@@ -63,7 +63,7 @@ jobs:
         run: gotestsum --junitfile junit-unit.xml -- -race -count=1 -shuffle=on ./...
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-unit
           path: junit-unit.xml
@@ -104,7 +104,7 @@ jobs:
         run: gotestsum --junitfile junit-macos.xml -- -race -count=1 ./...
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-macos
           path: junit-macos.xml
@@ -130,7 +130,7 @@ jobs:
         run: gotestsum --junitfile junit-integration.xml -- -race -tags integration ./internal/runtime/ -timeout 120s
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-integration
           path: junit-integration.xml
@@ -198,7 +198,7 @@ jobs:
         run: gotestsum --junitfile junit-sshd.xml -- -race -tags sshd ./test/sshd/ -timeout 300s
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-sshd-${{ matrix.distro }}-${{ matrix.arch }}
           path: junit-sshd.xml
