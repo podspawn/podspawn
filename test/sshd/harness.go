@@ -106,7 +106,7 @@ func SetupHarness() (*SSHHarness, error) {
 
 	return &SSHHarness{
 		Host:       host,
-		Port:       mappedPort.Int(),
+		Port:       int(mappedPort.Num()),
 		Container:  ctr,
 		PrivateKey: signer,
 		Docker:     dockerClient,
