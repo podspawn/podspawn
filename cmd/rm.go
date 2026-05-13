@@ -9,7 +9,9 @@ import (
 	"github.com/podspawn/podspawn/internal/audit"
 	"github.com/podspawn/podspawn/internal/cleanup"
 	"github.com/podspawn/podspawn/internal/identity"
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/runtime"
+	"github.com/podspawn/podspawn/internal/session"
 	"github.com/podspawn/podspawn/internal/state"
 	"github.com/podspawn/podspawn/internal/ui"
 	"github.com/spf13/cobra"
@@ -36,7 +38,7 @@ var rmCmd = &cobra.Command{
 		}
 		defer ls.Close()
 
-		if err := removeLocalWorkspace(context.Background(), ls.Session.Runtime, ls.Store, ls.Session.Audit, ls.Session.Username, args[0], force); err != nil {
+		if err := removeLocalWorkspace(context.Background(), ls.Service, ls.Session.Runtime, ls.Store, ls.Session.Audit, os.Getenv("USER"), ls.Session.Username, args[0], force); err != nil {
 			return err
 		}
 
@@ -45,7 +47,17 @@ var rmCmd = &cobra.Command{
 	},
 }
 
-func removeLocalWorkspace(ctx context.Context, rt runtime.Runtime, store workspaceRemovalStore, logger *audit.Logger, user, name string, force bool) error {
+// rmActor mirrors stopActor / shellActor: when the OS user invoking the
+// command differs from the workspace owner, the requester is an operator
+// acting on someone else's workspace.
+func rmActor(invoker, owner string) identity.Actor {
+	if invoker == "" || invoker == owner {
+		return identity.Human(owner)
+	}
+	return identity.Operator(invoker)
+}
+
+func removeLocalWorkspace(ctx context.Context, svc *session.Service, rt runtime.Runtime, store workspaceRemovalStore, logger *audit.Logger, invokerOSUser, user, name string, force bool) error {
 	if strings.HasPrefix(name, ".tmp-") {
 		return fmt.Errorf("refusing to remove ephemeral workspace name %q; clean up the .tmp-* directory directly", name)
 	}
@@ -77,6 +89,25 @@ func removeLocalWorkspace(ctx context.Context, rt runtime.Runtime, store workspa
 	if sess != nil && !force {
 		return fmt.Errorf("workspace %q is still running; use --force to remove it", name)
 	}
+
+	// Stage 8 gate: the existing lookups have already produced
+	// workspace + sess; the gate consumes them. Returned err is bare
+	// so the typed PolicyError (and its embedded reason) reaches the
+	// CLI intact.
+	actor := rmActor(invokerOSUser, user)
+	if svc != nil {
+		if err := svc.Authorize(ctx, policy.Request{
+			Op:          policy.OpWorkspaceRemove,
+			Actor:       actor,
+			OwnerUser:   user,
+			Workspace:   workspace,
+			Session:     sess,
+			ContainerID: policy.ContainerIDOf(sess),
+		}); err != nil {
+			return err
+		}
+	}
+
 	if sess != nil {
 		if err := cleanup.DestroySession(ctx, rt, store, sess); err != nil {
 			return fmt.Errorf("destroying running workspace: %w", err)
@@ -91,7 +122,7 @@ func removeLocalWorkspace(ctx context.Context, rt runtime.Runtime, store workspa
 	}
 	logger.WorkspaceDelete(audit.Subject{
 		User:        user,
-		Actor:       identity.Human(user),
+		Actor:       actor,
 		WorkspaceID: workspace.ID,
 	}, workspace.Name, workspace.Project, workspace.Branch, workspace.WorkspacePath, "rm")
 	return nil

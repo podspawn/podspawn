@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/podspawn/podspawn/internal/identity"
+	"github.com/podspawn/podspawn/internal/policy"
 	"github.com/podspawn/podspawn/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -49,6 +50,20 @@ var shellCmd = &cobra.Command{
 				if errors.Is(err, session.ErrWorkspaceNotFound) {
 					return fmt.Errorf("no workspace or session named %q for user %q", name, ls.Session.Username)
 				}
+				return err
+			}
+			// Stage 8 attach gate. Inspect already returned the context;
+			// we consume it without any extra lookup. Returning err bare
+			// preserves both errors.Is(err, policy.ErrPolicyDenied) and the
+			// human-readable reason on the way to the CLI.
+			if err := ls.Service.Authorize(context.Background(), policy.Request{
+				Op:          policy.OpSessionAttach,
+				Actor:       ls.Session.Actor,
+				OwnerUser:   ls.Session.Username,
+				Workspace:   res.Workspace,
+				Session:     res.Session,
+				ContainerID: policy.ContainerIDOf(res.Session),
+			}); err != nil {
 				return err
 			}
 			if res.Workspace != nil {
